@@ -135,7 +135,7 @@ CUVID/NVDEC 解码 → NPP 图像处理 → HIP 侧读取或使用
 | 解码格式 | H.264、4:2:0、8-bit、NV12 | 不扩展至其他 codec、位深或色度格式 |
 | 码流能力 | I/P/B、DPB、crop、seek/flush、动态分辨率、长期参考 | 场/MBAFF 遇到时明确返回不支持；不静默输出错误帧 |
 | FFmpeg 路径 | `h264_cuvid` 与 `h264_nvdec` | `h264_nvdec` 验证零拷贝 HIP 读取；`h264_cuvid` 可包含设备内拷贝，单独记录 |
-| CUVID API | 22 个动态加载符号形态；FFmpeg 直接使用的 9 个功能接口 | 清单见 `docs/architecture/api-coverage.md`；source 等未使用功能不得伪成功 |
+| CUVID API | 22 个动态加载符号形态；FFmpeg 直接使用的 9 个功能接口 | 清单见 `docs/architecture/CUVID到VAAPI映射表.md`；source 等未使用功能不得伪成功 |
 | NPP API | `nppiResizeSqrPixel_8u_C1R`、`nppiYCbCr420_8u_P2P3R`、`nppiYCbCr420_8u_P3P2R` 及必要 nppc | CUDA/NPP 11.5 ABI；与 NVIDIA 11.5.1.107 参考输出逐字节一致 |
 | libcuda | FFmpeg 解码与 NPP 联合链路所需内部支撑 | 不作为独立完整 CUDA driver API 交付 |
 | 数据通路 | LINEAR surface + DMA-BUF + HIP 导入，同进程 | 运行时校验 plane、pitch、offset、modifier 和 size；map 成功不等于像素正确 |
@@ -220,7 +220,7 @@ CUVID/NVDEC 解码 → NPP 图像处理 → HIP 侧读取或使用
 
 | 组件 | 加载或链接要求 | P0 必需范围 | 当前状态 | 未支持接口的行为 |
 |---|---|---|---|---|
-| `libcuda.so.1` | FFmpeg 动态加载清单要求符号可解析；宿主按源码重编译场景构建 | FFmpeg 7.1 解码及 NPP 联合链路实际调用子集；逐项清单见 `docs/architecture/api-coverage.md` | 源码已找回并归档；82 符号和 47 项历史功能结果不构成完整语义/ABI 验收 | stub 不得返回成功或伪造结果；按 CUDA 语义返回明确的不支持错误并记录诊断 |
+| `libcuda.so.1` | FFmpeg 动态加载清单要求符号可解析；宿主按源码重编译场景构建 | FFmpeg 7.1 解码及 NPP 联合链路实际调用子集；逐项清单见 `docs/architecture/CUVID到VAAPI映射表.md` | 源码已找回并归档；82 符号和 47 项历史功能结果不构成完整语义/ABI 验收 | stub 不得返回成功或伪造结果；按 CUDA 语义返回明确的不支持错误并记录诊断 |
 | `libnvcuvid.so.1` | 固定 SONAME；满足 nv-codec-headers 动态加载表 | 22 个符号形态；FFmpeg 直接功能调用 9 个；`h264_cuvid` 与 `h264_nvdec` 双路径 | 21 个必需符号及 caps 可解析；VAAPI LINEAR NV12 session 通过；parser 复用 FFmpeg 已通过 I-only 与 I/P/B 解析；Vulkan Video 后端已实现并接入（`CUVID_SHIM_BACKEND=vk`），I/IP/IPB 各 30 帧逐字节一致 + fd 无泄漏，FFmpeg `h264_cuvid` 宿主 30 帧 0 decode error；2026-11-12 P0 双后端四路码流各 82/82 逐字节、`verify_kernel_read` errors=0；FFmpeg 双路径像素/零拷贝未验收 | 不支持的 codec、格式、场/MBAFF 和 source 功能须显式失败；不得创建“成功但不可用”的能力假象 |
 | `libnpp*.so.11` | 编译时链接，SONAME=`libnpp*.so.11`；使用另行提供的授权 CUDA/NPP 11.5 头文件 | FFmpeg 7.1 `scale_npp` 的 3 个函数及必要 nppc | NVIDIA 11.5.1.107 参考输出已生成；AMD HIP kernel、stream/ROI/ABI 和联合链路尚未验证 | 未实现函数返回符合 NPP 语义的不支持错误；不得暗示完整 11 子库可用 |
 
@@ -947,7 +947,7 @@ P0 性能只记录不设通过阈值；P1 再根据真实业务确定性能门�
 | 项目 | 完成标准 | 当前状态 |
 |---|---|---|
 | **P0-1 交付范围** | §1.6 范围、码流特性、NPP 和非目标形成评审结论 | **✅ 已完成** |
-| **P0-2 宿主及 API 清单** | FFmpeg 7.1 静态调用面、22 个 CUVID 符号、libcuda 子集和 3 个 NPP 函数形成清单 | **✅ 已完成**，见 `docs/architecture/api-coverage.md` |
+| **P0-2 宿主及 API 清单** | FFmpeg 7.1 静态调用面、22 个 CUVID 符号、libcuda 子集和 3 个 NPP 函数形成清单 | **✅ 已完成**，见 `docs/architecture/CUVID到VAAPI映射表.md` |
 | **P0-3 兼容/ABI 边界** | 仅承诺源码重编译；明确 FFmpeg 内部动态加载仍需符号与 ABI 一致 | **✅ 已完成** |
 | **P0-4 AMD 底层能力门禁** | 实验 C/E 在 AMD 验证机重跑通过 | **✅ 已完成** |
 | **P0-5 证据口径** | 区分 libva→HIP 第 1A 步与 CUVID/FFmpeg 第 1B 步，清理单帧/P-B 等矛盾 | **✅ 已完成** |
@@ -982,11 +982,11 @@ P0 性能只记录不设通过阈值；P1 再根据真实业务确定性能门�
 | `tests/vulkan-video/basic/` | `verify_vulkan_video` | Vulkan Video 基础 + 通用零拷贝 |
 | `tests/vulkan-video/full/` | `verify_vulkan_video_full` | Vulkan Video V1–V4、V6 |
 | `tests/zerocopy/` | `make -f verify_vk_decode_to_hip.make run-b` / `run-p` / `run-i` | **Vulkan Video P0 闭环**：VK 解码→拷贝→导出→HIP 读端到端逐字节校验（I/IP/IPB 各 30 帧一致 + 无 fd/显存泄漏） |
-| `docs/evidence/p0-2026-11-12.md` | AMD 验证机汇总 | **P0 双后端 × 四路码流**：VAAPI 82/82、Vulkan 82/82 逐字节，`verify_kernel_read` errors=0，check/check_func/parser/session PASS；码流已入库，原始日志/命令待归档 |
+| `docs/evidence/P0闭环验证结果_2026-11-12.md` | AMD 验证机汇总 | **P0 双后端 × 四路码流**：VAAPI 82/82、Vulkan 82/82 逐字节，`verify_kernel_read` errors=0，check/check_func/parser/session PASS；码流已入库，原始日志/命令待归档 |
 | `cuda_shim/`（源码已找回并归档） | `make check_func` / `test_func_full.cpp` | libcuda 历史 47 项功能测试；源码取自 `cuda_shim` |
 | `cuda_shim/` | `make libnvcuvid.so.1 verify_cuvid_symbols verify_cuvid_session verify_cuvid_parser` | CUVID 21 必需符号 + caps、SONAME、VAAPI LINEAR NV12 session 和 parser 复用 FFmpeg 解析（I-only + I/P/B）；**不含 VAAPI 后端真实解码像素验收** |
 | `cuda_shim/` | `CUVID_SHIM_BACKEND=vk ./verify_vk_decode_e2e test_{,_p_,_b_}320x240.h264 ref_*` | **Vulkan Video 后端端到端**：CUVID 表面下切 VK 解码，I/IP/IPB 各 30 帧逐字节一致 + fd 无泄漏；FFmpeg `h264_cuvid` 宿主 30 帧 0 decode error |
-| `cuda_shim/` | `docs/architecture/api-coverage.md` | FFmpeg 7.1 CUVID/libcuda/NPP 的 P0 接口覆盖基线 |
+| `cuda_shim/` | `docs/architecture/CUVID到VAAPI映射表.md` | FFmpeg 7.1 CUVID/libcuda/NPP 的 P0 接口覆盖基线 |
 | `benchmarks/scripts/collect_ffmpeg_api.py` | `python3 benchmarks/scripts/collect_ffmpeg_api.py /path/to/ffmpeg-7.1` | FFmpeg 实际 CUVID/CUDA/NPP 静态调用面采集 |
 | `tests/parser/npp_p0_reference.cpp` | 链接 `nppig/nppicc/nppc/cudart` 后运行 | NVIDIA NPP 11.5 三个 P0 函数参考输出及 P2P3/P3P2 往返校验 |
 | `tests/parser/verify_parser_reuse.cpp`（已补回） | `make -f verify_parser_reuse.make` | FFmpeg parser 复用及 VAAPI 参数填充验证（本机 8/8 PASS，补齐 §4.6 缺失源文件） |
@@ -995,12 +995,12 @@ P0 性能只记录不设通过阈值；P1 再根据真实业务确定性能门�
 
 | 文档 | 内容 |
 |---|---|
-| `docs/architecture/nvdec-vaapi-comparison.md` | 解码格式矩阵实测（第一批） |
-| `docs/architecture/cuvid-vaapi-mapping.md` | CUVID/NVENC ↔ libva 映射 + parser 落地 + libcuda 状态 |
-| `docs/architecture/npp-compat-plan.md` | NPP 路线 A、11 子库、HIP kernel、分阶段 |
-| `docs/architecture/hipify-research.md` | HIPIFY 原理与架构 |
-| `docs/architecture/vulkan-video-evaluation.md` | Vulkan Video 评估 + 实测 |
-| `docs/verification/zero-copy-experiment.md` | 零拷贝实验设计 |
+| `docs/architecture/NVDEC与VAAPI解码对比.md` | 解码格式矩阵实测（第一批） |
+| `docs/architecture/CUVID到VAAPI映射表.md` | CUVID/NVENC ↔ libva 映射 + parser 落地 + libcuda 状态 |
+| `docs/architecture/NPP兼容方案与VPE对比.md` | NPP 路线 A、11 子库、HIP kernel、分阶段 |
+| `docs/architecture/HIPIFY调研.md` | HIPIFY 原理与架构 |
+| `docs/architecture/Vulkan_Video方案评估.md` | Vulkan Video 评估 + 实测 |
+| `docs/architecture/内存与同步模型.md` | 零拷贝实验设计 |
 
 ### 7.5 版本历史（摘要）
 
@@ -1019,5 +1019,5 @@ P0 性能只记录不设通过阈值；P1 再根据真实业务确定性能门�
 - **v1.34（2026-11-05）**：补充 Vulkan Video 两个短板的结论收口——① §4.4 明确 V3「只支持 OPTIMAL tiling」为**规范锁死 + 硬件寻址**双重结构性约束（非 bug、非等驱动可解），并给出三条候选路线取舍：改 Mesa 出 LINEAR（违规、永久 fork，不推荐）、改 `hipImportExternalMemory` 读 tiled（硬件寻址层 + VK 布局不透明，走不通）、接受一次 compute shader 转换（合规可上游，推荐），附转换实现要点与成本口径；② §4.12 明确异步同步不应修 `hipImportExternalSemaphore`（opaque fd 跨栈不互认，死胡同），正解走 `VK_KHR_external_fence_fd`→sync_file→syncobj→HIP queue wait fence 的标准桥接，缺口在 ROCr 用户态；③ 澄清 VK 作为后端时验收宿主仍是 `h264_cuvid`/`h264_nvdec`（非 `h264_vulkan`，后者仅环境冒烟/语义参考），shim 应抽象解码后端层；④ 同步更新优化版 v2.1。
 - **v1.35（2026-11-05）**：勘误 §4.4「转换实现要点」——`vkCmdCopyImageToBuffer` 对源 image **无 LINEAR 限制，OPTIMAL 也可用**（要求的是 `TRANSFER_SRC_OPTIMAL` layout，非 tiling）。转换首选方案由「自写 compute shader」更正为「`vkCmdCopyImageToBuffer` 硬件拷贝」，并补三个参考实现（FFmpeg `vulkan_transfer_frame`、GStreamer `vkdownload.c`、AMD `vulkan_interop`）与四条实现条件；同步更新优化版 v2.2。
 - **v1.36（2026-11-06）**：回写 Vulkan Video P0 闭环结论——`tests/zerocopy/verify_vk_decode_to_hip`（对标 VAAPI 版实验 C）在 AMD RX 7900 XTX 跑通「VK 解码→`vkCmdCopyImageToBuffer` 拷贝→`vkGetMemoryFdKHR` 导出→`hipImportExternalMemory` 读回」，I/IP/IPB 各 30 帧逐字节一致 + 无 fd/显存泄漏。沉淀 5 个实现约束：decode/transfer 双队列 + semaphore 桥接、DPB/output 图分离（VCN<5）、`pSetupReferenceSlot` 每帧必填（B 帧用临时 slot）、免手写 RefPicList 重排（驱动自行排）但需维护 active 参考集合、码流 buffer Annex-B 单 slice 复用 + range 对齐。§4.4、§5.1、§7.3 同步更新；Vulkan Video 维持 Tier 2 备选（未接回 CUVID/FFmpeg 宿主）。
-- **v1.38（2026-11-12）**：回写 P0 双后端闭环——AMD 验证机两个后端 × 四路码流，VAAPI 82/82、Vulkan 82/82 帧与软件参考逐字节一致（合计 164 帧）；`verify_kernel_read` errors=0；`make check` / `check_func` / parser / session 全部 PASS。P0-6 由“真实像素未通过”更新为“数据通路已通过”；同批修复 Vulkan B 帧 VCN ring timeout（视频会话内存 use-after-free），过程见 `docs/verification/vulkan-bframe-hang-debug-log.md`。仍未覆盖 FFmpeg 宿主双路径、`h264_nvdec` 零拷贝、多流/seek/flush、P010/奇数分辨率及目标平台业务验收。结果汇总见 `docs/evidence/p0-2026-11-12.md`；四路码流已随 `testdata/h264/` 入库。
+- **v1.38（2026-11-12）**：回写 P0 双后端闭环——AMD 验证机两个后端 × 四路码流，VAAPI 82/82、Vulkan 82/82 帧与软件参考逐字节一致（合计 164 帧）；`verify_kernel_read` errors=0；`make check` / `check_func` / parser / session 全部 PASS。P0-6 由“真实像素未通过”更新为“数据通路已通过”；同批修复 Vulkan B 帧 VCN ring timeout（视频会话内存 use-after-free），过程见 `docs/architecture/Vulkan后端实现.md`。仍未覆盖 FFmpeg 宿主双路径、`h264_nvdec` 零拷贝、多流/seek/flush、P010/奇数分辨率及目标平台业务验收。结果汇总见 `docs/evidence/P0闭环验证结果_2026-11-12.md`；四路码流已随 `testdata/h264/` 入库。
 - **v1.37（2026-11-07）**：回写 CUVID shim Vulkan Video 后端接入结论——`cuda_shim/` 的 `libnvcuvid.so.1` 新增 `vulkan_h264_decoder.{h,cpp}`，经 `DecoderBackend` 接口 + `backend_dispatch` 工厂与 VAAPI 后端并列，`CUVID_SHIM_BACKEND=vk` 运行时切换（默认 VAAPI）；SPS/PPS 由 `CuvidParser` 经 `VkSequenceCache`（前置 start code）转给后端懒建 session。AMD RX 7900 XTX 实测：I/IP/IPB 各 30 帧逐字节一致 + fd 无泄漏，FFmpeg `h264_cuvid` 宿主 30 帧 0 decode error。§4.4、§5.1、§7.3 同步更新；仍为 Tier 2 备选——默认 VAAPI，`h264_nvdec` 零拷贝、多流/seek/flush、crop、动态分辨率及 HEVC/VP9/AV1 未在此后端验收。

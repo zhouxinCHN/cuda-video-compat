@@ -1,7 +1,6 @@
 # benchmarks — NVDEC / VAAPI / NPP / VPP 对比
 
-这些程序用于能力矩阵和性能对比，不是兼容层构建的一部分。结果历史归档在
-[`docs/evidence/results/`](../docs/evidence/results/)。
+这些程序用于能力矩阵和性能对比，不是兼容层构建的一部分。结果历史归档在 [`docs/evidence/results/`](../docs/evidence/results/)。
 
 | 目录/文件 | 用途 |
 |---|---|
@@ -19,8 +18,7 @@
 
 ## 运行
 
-这些脚本依赖 NVIDIA CUDA/NPP 或 AMD VAAPI/ROCm 环境，按脚本头部注释设置
-`ROCM_DIR`、`CUDA_DIR`、`FFMPEG` 等变量。示例：
+这些脚本依赖 NVIDIA CUDA/NPP 或 AMD VAAPI/ROCm 环境。编译脚本直接调用 `nvcc` / 系统编译器，不读取 `ROCM_DIR` / `CUDA_DIR` 之类的配置变量；测试脚本按 `--nvidia` / `--amd` / `--quick` / `--json` 参数选择机器。
 
 ```bash
 cd benchmarks/scripts

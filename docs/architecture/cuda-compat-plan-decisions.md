@@ -222,7 +222,7 @@
 
 ### 3.5 证据使用边界
 
-Vulkan 后端的 AMD 结果来自 2026-11-07 的方案回写；P0 双后端结果来自 2026-11-12 的 AMD 验证运行。`docs/evidence/p0-2026-11-12.md` 先记录了结果汇总，四路码流已入库 `testdata/h264/`；原始日志、命令和 SHA256 仍需补归档后，才能转成正式验收证据。
+Vulkan 后端的 AMD 结果来自 2026-11-07 的方案回写；P0 双后端结果来自 2026-11-12 的 AMD 验证运行。`docs/evidence/P0闭环验证结果_2026-11-12.md` 先记录了结果汇总，四路码流已入库 `testdata/h264/`；原始日志、命令和 SHA256 仍需补归档后，才能转成正式验收证据。
 
 ---
 
@@ -748,9 +748,9 @@ FFmpeg 使用 3 个 NPP 函数，不代表其他客户也只使用这 3 个。�
 
 - [docs/architecture/cuda-compat-plan-optimized.md](cuda-compat-plan-optimized.md)：原决策与实施稿。
 - [docs/architecture/cuda-compat-plan-integrated.md](cuda-compat-plan-integrated.md)：原完整技术、实验和历史记录。
-- [docs/architecture/nvdec-vaapi-comparison.md](nvdec-vaapi-comparison.md)：历史格式能力对比。
-- [docs/architecture/cuvid-vaapi-mapping.md](cuvid-vaapi-mapping.md)：接口映射与解析实现参考。
-- [docs/architecture/npp-compat-plan.md](npp-compat-plan.md)：NPP 兼容策略。
-- [docs/architecture/hipify-research.md](hipify-research.md)：客户自有计算代码的翻译工具。
-- [docs/verification/zero-copy-experiment.md](../verification/zero-copy-experiment.md)：显存共享实验设计。
-- [docs/architecture/vulkan-video-evaluation.md](vulkan-video-evaluation.md)：Vulkan Video 后端评估。
+- [docs/architecture/NVDEC与VAAPI解码对比.md](NVDEC与VAAPI解码对比.md)：历史格式能力对比。
+- [docs/architecture/CUVID到VAAPI映射表.md](CUVID到VAAPI映射表.md)：接口映射与解析实现参考。
+- [docs/architecture/NPP兼容方案与VPE对比.md](NPP兼容方案与VPE对比.md)：NPP 兼容策略。
+- [docs/architecture/HIPIFY调研.md](HIPIFY调研.md)：客户自有计算代码的翻译工具。
+- [docs/architecture/内存与同步模型.md](../architecture/内存与同步模型.md)：显存共享实验设计。
+- [docs/architecture/Vulkan_Video方案评估.md](Vulkan_Video方案评估.md)：Vulkan Video 后端评估。

@@ -11,8 +11,8 @@
 | 问题 | 结论 |
 |---|---|
 | Vulkan Video 能否实现编解码？ | **可行**，且是比 VAAPI 更「跨厂商」的开放标准，但生态和驱动成熟度目前不如 VAAPI |
-| 能否与 HIP 零拷贝？ | **可以**，通路清晰：`VK_KHR_external_memory_fd` 导出 dma-buf ↔ `hipImportExternalMemory` 导入，两边对称 |
-| 现在（本机）能否验证？ | 不能 —— 本机缺 Vulkan 头文件、loader 开发包、`vulkaninfo`；demo 已写好，装依赖即可在 AMD 机器跑 |
+| 能否与 HIP 零拷贝？ | **有条件可以**：`VK_KHR_external_memory_fd` 导出 dma-buf ↔ `hipImportExternalMemory` 导入可行；但 Vulkan Video 解码输出必须是 OPTIMAL tiling，需先 GPU 内拷贝到线性 buffer，因此不是严格零拷贝 |
+| 现在能否验证？ | **已验证**：RX 7900 XTX / RADV 上四路码流 82/82 逐字节一致，见 [Vulkan 后端实现](Vulkan后端实现.md) §8 |
 
 ---
 
@@ -221,7 +221,7 @@ Vulkan Video 编码要真正跑起来，需要**逐层都成立**。任何一层
 
 | 验证项 | 结果 | 关键发现 |
 |---|---|---|
-| **V1: 视频队列** | ✅ PASS | `VIDEO_DECODE` 和 `VIDEO_ENCODE` 队列族**默认就可用**（不需要 `RADV_PERFTEST`） |
+| **V1: 视频队列** | ✅ PASS | 探测时 `VIDEO_DECODE` 和 `VIDEO_ENCODE` 队列族默认可用；解码扩展是否默认启用尚未做同版本 A/B 对照 |
 | **V2: 编解码能力** | ✅ PASS | H264/HEVC 解码能力完整，H264 编码能力完整 |
 | **V3: 视频格式** | ⚠️ 部分 PASS | 支持 NV12，但**只支持 OPTIMAL tiling**，不支持 LINEAR |
 | **V4: 会话对象** | ✅ PASS | 视频会话可以创建，内存需求可以查询 |
@@ -239,7 +239,7 @@ queue family[3]: flags=VIDEO_ENCODE  queueCount=1
 queue family[4]: flags=SPARSE  queueCount=1
 ```
 
-**关键发现**：之前假设需要设置 `RADV_PERFTEST=video_decode,video_encode` 才能启用视频队列，实测发现**默认就暴露了**。这推翻了之前的假设，说明 RADV 的视频支持比预期更成熟。
+**关键发现**：之前假设必须设置 `RADV_PERFTEST=video_decode,video_encode` 才能启用视频队列；本次探测发现队列族默认就暴露了。后续验证脚本仍显式设置该变量作为保守做法；两者是否等价，需要在同一 Mesa 版本上做 A/B 复测。
 
 #### V2: 编解码能力（完整）
 
@@ -275,7 +275,7 @@ format[0]: vkFormat=1000156003 (NV12) imageTiling=0 (OPTIMAL) imageUsage=0x1000
 **影响**：
 - Vulkan Video 解码输出的 surface 是 OPTIMAL tiling（tiled + DCC）
 - HIP 无法直接按线性 NV12 读取 Vulkan Video 解码输出
-- 需要额外的 GPU 转换步骤（Vulkan compute shader 或 VPP）
+- 需要一次 GPU 内转换；首选 `vkCmdCopyImageToBuffer`（硬件拷贝引擎），无需自写 compute shader
 
 **这是 Vulkan Video 零拷贝路线的核心障碍**。
 
@@ -303,8 +303,8 @@ hipImportExternalSemaphore: operation not supported
 - **但 HIP 不支持导入外部 semaphore**（`hipImportExternalSemaphore` 返回 `operation not supported`）
 
 **影响**：
-- Vulkan ↔ HIP 的异步同步（通过外部 semaphore）**不可用**
-- 只能走主机同步（`vaSyncSurface` + `hipEventSynchronize`）
+- Vulkan ↔ HIP 通过 **opaque semaphore** 的异步同步不可用（ROCm 不认）
+- 只能走主机同步（`vaSyncSurface` + `hipEventSynchronize`）；sync_file/syncobj 是候选路线，但未落地
 - 性能会受影响，但功能可用
 
 ### 7.3 实测结论
@@ -319,12 +319,12 @@ hipImportExternalSemaphore: operation not supported
 
 - 视频格式只支持 OPTIMAL tiling，不支持 LINEAR
 - HIP 无法直接读取 Vulkan Video 解码输出的 tiled surface
-- 需要额外的 GPU 转换（Vulkan compute shader 或 VPP）
+- 需要一次 GPU 内拷贝（`vkCmdCopyImageToBuffer`），**不需要自写 compute shader**；这是固定成本
 
-#### 异步同步：❌ 不可用
+#### 异步同步：❌ 未落地
 
-- HIP 不支持导入外部 semaphore
-- 只能走主机同步（`vaSyncSurface` + `hipEventSynchronize`）
+- opaque semaphore 路线不可用（ROCm 不支持导入）
+- 当前只能走主机同步（`vaSyncSurface` + `hipEventSynchronize`）；sync_file/syncobj 是候选
 - 性能会受影响，但功能可用
 
 ### 7.4 对方案的影响
@@ -332,9 +332,9 @@ hipImportExternalSemaphore: operation not supported
 #### Vulkan Video 可以作为编解码后端，但需要接受：
 
 1. **解码输出是 tiled**，需要转换才能给 HIP 读取
-   - 方案 A：在 Vulkan 侧用 compute shader 做 tiled→linear 转换
-   - 方案 B：用 VPP（Video Post-Processing）做转换
-   - 两种方案都会增加 GPU 开销，不是严格零拷贝
+   - 首选：`vkCmdCopyImageToBuffer`（barrier 后逐平面拷贝到线性 buffer，硬件拷贝引擎）
+   - 备选：VPP（Video Post-Processing）
+   - 转换会增加一次 GPU 开销，不是严格零拷贝；但不需要自写 compute shader
 
 2. **同步只能走主机侧**，不能全异步
    - 性能损失：每帧需要主机等待
@@ -347,18 +347,18 @@ hipImportExternalSemaphore: operation not supported
 | 维度 | VAAPI | Vulkan Video |
 |---|---|---|
 | 零拷贝 | ✅ 支持 LINEAR tiling | ❌ 只支持 OPTIMAL tiling |
-| 异步同步 | ✅ 可以通过 fence 实现 | ❌ 只能主机同步 |
+| 异步同步 | ⚠️ 未落地；当前主机同步为基线，sync_file/syncobj 是候选 | ❌ 只能主机同步 |
 | 驱动成熟度 | ✅ 成熟 | ⚠️ 较新，但实测能力完整 |
 | 跨平台 | ❌ Linux 专用 | ✅ 跨平台 |
 
 **结论**：
-- **短期**：VAAPI 是首选（零拷贝 + 异步同步）
+- **短期**：VAAPI 是首选（真零拷贝；同步仍为主机基线，异步 fence 未落地）
 - **中长期**：Vulkan Video 可以作为备选后端（需要接受 tiled 转换 + 主机同步）
 - **如果坚持用 Vulkan Video**：需要实现 tiled→linear 转换层，并接受主机同步的性能损失
 
 ### 7.5 下一步建议
 
-1. **优先完成 VAAPI 编解码 shim**（零拷贝 + 异步同步）
+1. **优先完成 VAAPI 编解码 shim**（真零拷贝；同步先走主机基线）
 2. **Vulkan Video 作为 Tier 2 备选**（仅在 VAAPI 不可用时启用）
 3. **如果未来需要跨平台支持**：投入 Vulkan Video 后端开发，但需要实现转换层
 
@@ -370,8 +370,8 @@ hipImportExternalSemaphore: operation not supported
 - [x] 已写 `verify_vulkan_video_full.cpp` + `Makefile`（完整验证 V1-V4, V6）
 - [x] 已细化「Vulkan Video 编码」失败风险与多级降级策略（§6）
 - [x] **已在 AMD 机器完成实测**（RX 7900 XTX，结果见 §7）
-- [x] 实测结论：编解码能力完整，但零拷贝受限（只支持 OPTIMAL tiling），异步同步不可用
-- [x] 已实现 Tier 2 Vulkan Video 后端并完成 P0 数据通路（2026-11-12：四路码流 82/82 逐字节、`verify_kernel_read` errors=0）
+- [x] 实测结论：编解码能力完整，但零拷贝受限（只支持 OPTIMAL tiling），异步同步未落地
+- [x] 已实现 Tier 2 Vulkan Video 后端并完成 P0 数据通路（结果见 [Vulkan 后端实现 §8](Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)）
 - [ ] 是否升级为主线，仍待 FFmpeg 宿主双路径、多流/seek 和目标平台验收
 
-**总风险定调**：Vulkan Video **编解码能力完整**，但**零拷贝和异步同步受限**。VAAPI 仍然是首选（零拷贝 + 异步同步），Vulkan Video 作为 Tier 2 备选（需要接受 tiled 转换 + 主机同步）。
+**总风险定调**：Vulkan Video 编解码能力完整，但零拷贝和异步同步受限。VAAPI 仍然是首选（真零拷贝；同步先走主机基线），Vulkan Video 作为 Tier 2 备选（需要接受 tiled 转换 + 主机同步）。

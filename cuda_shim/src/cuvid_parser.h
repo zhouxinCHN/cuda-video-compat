@@ -72,7 +72,7 @@ private:
 
     // Stashed SPS/PPS NAL bytes, forwarded to VkSequenceCache once both are seen.
     // This is the seam between the CUVID parser (which sees SPS/PPS) and the
-    // Vulkan backend (which needs them to build its session). See docs/architecture/vulkan-backend.md.
+    // Vulkan backend (which needs them to build its session). See docs/architecture/Vulkan后端实现.md.
     std::vector<uint8_t> pending_sps_;
     std::vector<uint8_t> pending_pps_;
 

@@ -13,11 +13,10 @@
 | `h264/test_p_main.h264` | I/P（无 B），320×240，Main，Level 2.0 | 30 |
 | `h264/test_p_66.h264` | I/P（无 B），320×240，Constrained Baseline（profile_idc 66） | 30 |
 
-后四个是 **B 帧回归组**：`test_p_b_*` 覆盖"解码序前几帧参考槽数递增 / 参考表修改"的路径，
-`test_p_main` 与 `test_p_66` 是对照组（无 B 帧、两种 profile）。这四个码流就是
-[Vulkan 后端说明 §8.3](../docs/architecture/vulkan-backend.md#83-验证结果) 里那组
-逐帧逐平面位精确结果的输入，复现命令见
-[B 帧挂死调试留档 §5](../docs/verification/vulkan-bframe-hang-debug-log.md#5-验证命令可复现)。
+后四个是 **B 帧验证组**：`test_p_b_5` / `test_p_b_7` 覆盖“解码序前几帧参考槽数递增 / 参考表修改”的路径；
+`test_p_main` 与 `test_p_66` 是无 B 帧对照组（两种 profile）。这四个码流就是
+[Vulkan 后端实现 §8.3](../docs/architecture/Vulkan后端实现.md#83-验证结果) 里那组
+逐帧逐平面位精确结果的输入，复现命令见[验证手册](../docs/verification/验证手册.md) §3.5。
 
 ## 生成参考 YUV
 
@@ -52,4 +51,4 @@ ffmpeg -y -f lavfi -i "testsrc2=size=320x240:rate=30:duration=1" \
   -x264-params "keyint=30:bframes=2:scenecut=0" test_b_320x240.h264
 ```
 
-重新生成后请同步更新 [最小验证实验套件](../docs/verification/minimal-test-suite.md) 中的说明与结果。
+重新生成后请同步更新[验证手册](../docs/verification/验证手册.md)中的说明与结果。

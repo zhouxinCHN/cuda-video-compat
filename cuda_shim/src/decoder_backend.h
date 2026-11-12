@@ -10,7 +10,7 @@
 //   * VulkanH264Decoder  (VK_KHR_video_decode_h264, the Tier-2 alternative)
 //
 // Selection is by env CUVID_SHIM_BACKEND ("vaapi" | "vk"), resolved in
-// make_backend(). See docs/architecture/vulkan-backend.md for the architecture and the SPS/PPS
+// make_backend(). See docs/architecture/Vulkan后端实现.md for the architecture and the SPS/PPS
 // handoff between CuvidParser and VulkanH264Decoder.
 
 #include <ffnvcodec/dynlink_cuda.h>

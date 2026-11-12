@@ -17,7 +17,7 @@ CXXFLAGS     := -std=c++17 -fPIC -D__HIP_PLATFORM_AMD__ \
                 -Iinclude -I$(NVCODEC_DIR) -I$(ROCM_DIR)/include
 HIP_LIB      := $(ROCM_DIR)/lib/libamdhip64.so
 # 设备端测试需要 hipcc；个别机器上 ROCm clang 找不到系统 libstdc++，
-# 可用 HIPCC_EXTRA 补 -I/-L（见 ../docs/verification/quick-verify.md）。
+# 可用 HIPCC_EXTRA 补 -I/-L（见 ../docs/verification/验证手册.md）。
 HIPCC        ?= $(ROCM_DIR)/bin/hipcc
 HIPCC_EXTRA  ?=
 # Some systems ship only libvulkan.so.1 (no -dev symlink). Override with:

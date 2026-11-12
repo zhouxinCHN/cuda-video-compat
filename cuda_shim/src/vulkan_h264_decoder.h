@@ -13,7 +13,7 @@
 // decode session + session parameters, but the CUVID host only hands this
 // decoder per-slice NALs. SPS/PPS arrive via VkSequenceCache (filled by
 // CuvidParser). ensure_session() lazily builds the Vulkan object graph the
-// first time SPS/PPS are both cached. See docs/architecture/vulkan-backend.md.
+// first time SPS/PPS are both cached. See docs/architecture/Vulkan后端实现.md.
 
 #include <ffnvcodec/dynlink_cuda.h>
 #include <ffnvcodec/dynlink_cuviddec.h>

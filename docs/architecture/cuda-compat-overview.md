@@ -83,10 +83,10 @@ HIPIFY 是**源码翻译工具**，前提是"存在 HIP 对应物"：
 
 | 文档 | 内容 |
 |---|---|
-| [docs/architecture/nvdec-vaapi-comparison.md](nvdec-vaapi-comparison.md) | 解码格式矩阵实测（NVDEC vs VAAPI） |
-| [docs/architecture/npp-vpe-comparison.md](npp-vpe-comparison.md) | NPP vs VPE 能力对比 |
-| [docs/architecture/cuvid-vaapi-mapping.md](cuvid-vaapi-mapping.md) | cuvid/nvenc → libva 映射 + parser 落地路径 + libcuda 实现状态 |
-| [docs/architecture/npp-compat-plan.md](npp-compat-plan.md) | NPP 兼容层完整方案（路线 A、库组织、HIP kernel、分阶段） |
+| [docs/architecture/NVDEC与VAAPI解码对比.md](NVDEC与VAAPI解码对比.md) | 解码格式矩阵实测（NVDEC vs VAAPI） |
+| [docs/architecture/NPP兼容方案与VPE对比.md](NPP兼容方案与VPE对比.md) | NPP vs VPE 能力对比 |
+| [docs/architecture/CUVID到VAAPI映射表.md](CUVID到VAAPI映射表.md) | cuvid/nvenc → libva 映射 + parser 落地路径 + libcuda 实现状态 |
+| [docs/architecture/NPP兼容方案与VPE对比.md](NPP兼容方案与VPE对比.md) | NPP 兼容层完整方案（路线 A、库组织、HIP kernel、分阶段） |
 
 ---
 
@@ -185,4 +185,4 @@ CUDA→编码：hipMemcpyDtoH(HIP→host) + 上传到 VAAPI surface
 - 这直接决定整个方案是"零拷贝"还是"拷贝"。
 - 一两天可完成，**强烈建议在写大量 shim 代码之前先做**。
 - 若验证通过，零拷贝路径成立；若不通，提前转向拷贝设计，避免返工。
-- **可执行实验清单见 [docs/verification/zero-copy-experiment.md](../verification/zero-copy-experiment.md)**（含环境准备、5 个实验、检查点、结果判定，RX 7600 即可做）。
+- **可执行实验清单见 [docs/architecture/内存与同步模型.md](../architecture/内存与同步模型.md)**（含环境准备、5 个实验、检查点、结果判定，RX 7600 即可做）。

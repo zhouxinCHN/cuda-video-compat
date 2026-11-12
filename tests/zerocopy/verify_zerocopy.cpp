@@ -1,7 +1,7 @@
 // verify_zerocopy.cpp
 // 零拷贝验证实验：ROCm(HIP) + Mesa(VAAPI) 同 GPU 内存互操作
 //
-// 三个实验（对应 docs/verification/zero-copy-experiment.md）：
+// 三个实验（对应 docs/architecture/内存与同步模型.md §3.5）：
 //   实验1：HIP + VAAPI 同进程共存
 //   实验2：边界1 —— VAAPI surface 导出 DMA-BUF → HIP import → HIP 读（解码→NPP 方向）
 //   实验3：边界2 —— HIP 内存导出 DMA-BUF（经 HSA）→ VAAPI import（计算→编码方向）

@@ -2,7 +2,7 @@
 
 > 版本：v1.1
 > 调研/复核时间：2026-10-29（初稿）、2026-11-10（复核）
-> 调研对象：HIPIFY（AMD ROCm 官方项目，源码位于 `third_party/HIPIFY`）
+> 调研对象：HIPIFY（AMD ROCm 官方项目；本仓库不包含其源码，路径以 ROCm/HIPIFY 上游仓库为准）
 > 调研基线：源码 HEAD `1a9c5f0`（2026-10-27，`amd-develop` 分支）；本机安装包 `hipify-clang 22.0.0.70200`（ROCm 7.2.0）
 > 读者：需要了解"HIPIFY 是什么、能做什么、不能做什么"的工程师/决策者
 > 文档定位：本文是 **HIPIFY 工具技术调研**，聚焦工具本身的能力、边界和使用方法。
@@ -104,7 +104,7 @@ flowchart TB
 
 ## 6. 能翻译什么（支持的 CUDA API 范围）
 
-HIPIFY 能翻译的，是**映射表中存在目标 HIP/ROC 实现**的 CUDA API。根据本地 `docs/reference/supported_apis.md`（与官方文档同源）：
+HIPIFY 能翻译的，是**映射表中存在目标 HIP/ROC 实现**的 CUDA API。根据上游仓库的 `docs/reference/supported_apis.md`（与官方文档同源）：
 
 | CUDA | 默认映射（HIP） | ROC 模式（`--roc`） / 备注 |
 |---|---|---|
@@ -126,7 +126,7 @@ HIPIFY 能翻译的，是**映射表中存在目标 HIP/ROC 实现**的 CUDA API
 
 > 说明：
 > - 默认模式输出 HIP API；`--roc` 优先映射到 ROC 库；`--miopen` 用于 cuDNN→MIOpen（官方文档说明不要与 `--roc` 同时显式指定）。
-> - 表中只列 API 家族。具体函数是否在目标 ROCm 版本可用，需查 `docs/reference/tables/` 中的 A/D/C/R/U/E 标记；"能转换"不等于"HIP 实现一定可用"。
+> - 表中只列 API 家族。具体函数是否在目标 ROCm 版本可用，需查上游仓库的 `docs/reference/tables/` 中的 A/D/C/R/U/E 标记；"能转换"不等于"HIP 实现一定可用"。
 > - 映射表源码文件（`src/CUDA2HIP_*.cpp`）覆盖：Runtime、Driver、Device、RTC、BLAS、SPARSE、SPARSELT、SOLVER、RAND、FFT、DNN、TENSOR、CUB、Complex、FILE。
 
 ---
@@ -294,6 +294,6 @@ hipcc square.cu.hip -o square    # 用 hipcc 编译 HIP 源码
 3. **映射表覆盖有限**：映射表没有的 API/特性（部分新版 CUDA 特性、NVDEC/NVENC/NPP 等）不会被转换，统计中显示 `UNCONVERTED`；未文档化/实验性 API 需 `--experimental`。
 4. **翻译≠迁移完成**：还需调整构建系统（nvcc→hipcc、`sm_XX`→`gfxXXX`）、链接库、头文件和版本检查，并重新做数值、稳定性和性能验证。
 5. **语义差异需人工处理**：AMD 的 wavefront 大小与 NVIDIA warp 不同（RDNA 通常 32、CDNA 64），依赖 `warpSize`、`__shfl*`、`__ballot*`、`__syncwarp` 的代码要逐处核对；内联 PTX、特殊指令、cooperative groups、CUDA Graphs、动态并行、texture/surface、复杂控制流等也需单独评估；若依赖闭源库，需另行评估 shim 或替代方案。
-6. **"能转换"不等于"目标版本可用"**：具体 API 在目标 ROCm 版本可能是实验性或不支持，需查 `docs/reference/tables/` 的 A/D/C/R/U/E 标记。
+6. **"能转换"不等于"目标版本可用"**：具体 API 在目标 ROCm 版本可能是实验性或不支持，需查上游仓库的 `docs/reference/tables/` 的 A/D/C/R/U/E 标记。
 7. **版本基线要固定**：hipify-clang 与 CUDA/ROCm 版本有配套关系；换版本后应重跑统计和回归。本机 7.2.0 安装包支持 CUDA 7.0–12.9，源码 HEAD 的文档声称支持到 CUDA 13.2；以实际使用的版本为准，可用 `hipify-clang --versions` 自检。
 

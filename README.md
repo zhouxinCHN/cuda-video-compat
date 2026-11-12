@@ -1,17 +1,15 @@
 # CUDA 解码兼容层（VAAPI / Vulkan Video）
 
-在非 NVIDIA GPU 上，为**重新编译**的 CUDA 视频应用提供 NVDEC / CUVID / NPP 兼容层：
-用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、
-`libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
+在非 NVIDIA GPU 上，为**重新编译**的 CUDA 视频应用提供 NVDEC / CUVID / NPP 兼容层：用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、`libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
 
-> 当前定位：**P0 双后端数据通路已验证，业务链路尚未验收**；不是生产可用版本。请先阅读
-> [验证边界](#验证边界)，不要把“底层通路验证通过”当作“业务链路验收通过”。
+> 当前定位：**P0 双后端数据通路已验证，业务链路尚未验收**；不是生产可用版本。请先阅读[验证边界](#验证边界)。
 
 ## 仓库结构
 
 ```text
 .
 ├── README.md                  # 本文件
+├── NOTICE.md                  # 商标与关联关系声明
 ├── LICENSE-TBD.md             # 许可证待定，暂未授予开源许可
 ├── CONTRIBUTING.md            # 贡献指南
 ├── SECURITY.md                # 安全问题报告
@@ -19,9 +17,10 @@
 ├── THIRD_PARTY.md             # 第三方依赖与许可证
 ├── docs/
 │   ├── README.md              # 文档索引
-│   ├── architecture/          # 架构、方案、API 映射、模型说明
-│   ├── verification/          # 实验设计、Quick Verify、AMD 交接
-│   └── evidence/              # 历史结果与日志（已脱敏）
+│   ├── 仓库结构与迁移.md       # 目录树、旧路径映射、迁移自检
+│   ├── architecture/          # 架构、方案、API 映射、内存模型
+│   ├── verification/          # 验证手册（环境/构建/实验/排障）
+│   └── evidence/              # 结果、日志与原始数据
 ├── cuda_shim/                 # 兼容层本体：libcuda + libnvcuvid
 │   ├── include/               # CUDA 类型映射
 │   ├── src/                   # VAAPI / Vulkan Video 后端、DMA-BUF 映射
@@ -33,11 +32,11 @@
 │   ├── zerocopy/              # VAAPI / Vulkan Video → HIP 端到端像素校验
 │   ├── sync/                  # 同步协议与异步 fence 现状探测
 │   ├── vulkan-video/          # Vulkan Video 能力探测（basic / full）
-│   └── quick-verify/          # mapped pointer kernel 读取、FFmpeg 双路径快速验证
+│   └── quick-verify/          # mapped pointer kernel 读取、FFmpeg 双路径脚本
 ├── benchmarks/                # NVDEC / VAAPI / NPP / VPP 对比测试
 ├── testdata/h264/             # 小体积 H.264 测试码流
 ├── scripts/                   # 仓库维护脚本（链接检查等）
-└── .github/workflows/         # CI（Shell/Python/文档链接检查）
+└── .github/                   # CI（Shell/Python/文档链接/大文件检查）与 PR 模板
 ```
 
 ## 快速开始
@@ -47,13 +46,11 @@
 - Linux + ROCm 7.x（HIP runtime 与头文件）
 - `libva-dev`、`libva-drm`、`libdrm-dev`
 - Vulkan loader；Vulkan Video 后端还需要 Mesa/RADV 与 `vk_video/*` 头
-- FFmpeg **7.1** 源码的构建产物：`libavutil.so` + 9 个解析对象
-  （`h2645_parse/h264_ps/h2645_vui/h2645data/h264data/h264_parse/golomb/mathtables/refstruct`）
-- `nv-codec-headers`（nv-codec-headers 的 CUDA/CUVID 头）
+- FFmpeg **7.1** 源码的构建产物：`libavutil.so` + 9 个解析对象（`h2645_parse` / `h264_ps` / `h2645_vui` / `h2645data` / `h264data` / `h264_parse` / `golomb` / `mathtables` / `refstruct`）
+- `nv-codec-headers`（CUDA / CUVID 头）
 - FFmpeg 7.1 可执行文件（仅跑宿主路径验证时需要 `h264_cuvid` / `h264_nvdec`）
 
-FFmpeg、Mesa、nv-codec-headers 都**不随仓库分发**，按外部依赖处理；
-详见 [THIRD_PARTY.md](THIRD_PARTY.md) 和 [docs/verification/handoff-amd.md](docs/verification/handoff-amd.md)。
+FFmpeg、Mesa、nv-codec-headers 都**不随仓库分发**，按外部依赖处理；详见 [THIRD_PARTY.md](THIRD_PARTY.md) 和[验证手册](docs/verification/验证手册.md)。
 
 ### 2. 构建兼容层
 
@@ -67,13 +64,11 @@ make -j"$(nproc)" libcuda.so.1 libnvcuvid.so.1 \
   VULKAN_LIB=-l:libvulkan.so.1
 ```
 
-`VULKAN_LIB=-l:libvulkan.so.1` 适用于只有运行时 `libvulkan.so.1`、没有 `libvulkan.so`
-开发软链的机器；装了 `libvulkan-dev` 时可以省略。
+`VULKAN_LIB=-l:libvulkan.so.1` 适用于只有运行时 `libvulkan.so.1`、没有 `libvulkan.so` 开发软链的机器；装了 `libvulkan-dev` 时可以省略。
 
 ### 3. 跑快速验证
 
 ```bash
-# mapped dev_ptr 是否真能被 HIP kernel 寻址 + event 后再 unmap
 make -C cuda_shim verify_kernel_read \
   ROCM_DIR=/opt/rocm \
   HIPCC_EXTRA="--offload-arch=gfx1100"
@@ -83,27 +78,7 @@ BACKENDS=vaapi ./run_kernel_read.sh
 BACKENDS=vaapi ./run_ffmpeg_compare.sh
 ```
 
-预期结果与排障见 [docs/verification/quick-verify.md](docs/verification/quick-verify.md)。
-
-### 4. 跑端到端实验
-
-```bash
-# FFmpeg parser 复用
-cd tests/parser
-make -f verify_parser_reuse.make run
-
-# VAAPI 解码 → HIP 读（I/P/B 30 帧逐字节）
-cd tests/zerocopy
-make -f verify_decode_to_hip.make run-b
-
-# 同步协议 S1–S8
-cd tests/sync
-make run
-
-# Vulkan Video 能力探测
-cd tests/vulkan-video/full
-make && ./verify_vulkan_video_full
-```
+预期结果、完整实验套件与排障见[验证手册](docs/verification/验证手册.md)。
 
 ## 两条后端路径
 
@@ -115,49 +90,45 @@ make && ./verify_vulkan_video_full
 | 同步基线 | `vaSyncSurface` + HIP event | Vulkan semaphore/fence + HIP event |
 | 异步跨栈 fence | 未落地 | 未落地；需 sync_file/syncobj 与 ROCr 协同 |
 
+技术细节见[内存与同步模型](docs/architecture/内存与同步模型.md)与 [Vulkan 后端实现](docs/architecture/Vulkan后端实现.md)。
+
 ## 验证边界
 
-已记录的结果（详见 [docs/README.md](docs/README.md)）：
+已记录的结果（完整证据见 [P0 闭环验证结果](docs/evidence/P0闭环验证结果_2026-11-12.md)）：
 
-- `libcuda` 功能子集 **47 PASS / 0 FAIL**（历史记录）。
-- **2026-11-12 AMD P0 闭环**：两个后端 × 四路码流，每后端 82/82 帧与软件参考逐字节一致（合计 164 帧）；
-  `verify_kernel_read` 两个后端 `errors=0`；`make check` / `check_func` / parser / session 全部 PASS。
-  Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复（视频会话内存 use-after-free），
-  详见 [P0 结果记录](docs/evidence/p0-2026-11-12.md) 和 [B 帧调试留档](docs/verification/vulkan-bframe-hang-debug-log.md)。
+- **2026-11-12 AMD P0 闭环**：两个后端 × 四路码流，每后端 82/82 帧与软件参考逐字节一致（合计 164 帧）；`verify_kernel_read` 两个后端 `errors=0`；`make check` / `check_func` / parser / session 全部 PASS。
+- Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复（视频会话内存 use-after-free），见 [Vulkan 后端实现 §8](docs/architecture/Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)。
+- `libcuda` 功能子集 47 PASS / 0 FAIL（历史记录）。
 - VAAPI 真实解码 → HIP 读：I / I-P / I-P-B 各 30 帧逐字节一致。
 - 同步协议 S1–S8 通过；S8 1000 帧文件句柄稳定。
 - Vulkan Video 解码 → 拷贝 → 导出 → HIP 读：三类码流各 30 帧逐字节一致，无 fd/显存泄漏。
-- Vulkan 后端接入 FFmpeg `h264_cuvid` 30 帧 0 decode error。
 
 仍**未**完成的验收项：
 
 - FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）的正式像素/零拷贝验收；
 - 多流、seek/flush、动态分辨率、P010/奇数分辨率；
 - 异步跨栈 fence；
+- NPP 联合链路与编码链路（实验 D 输出异常，暂停）；
 - 目标平台、1/8 路 30 分钟稳定性、真实业务性能；
-- 四路 P0 码流已入库；原始运行命令、stdout/环境版本仍需归档（见 P0 结果记录）。
+- P0 原始运行命令、stdout/环境版本仍需归档。
 
 ## 文档
 
 - [文档索引](docs/README.md)
-- [目录结构与迁移对照](docs/STRUCTURE.md)
-- [CUDA 解码链路内存与同步模型](docs/architecture/decode-memory-sync-model.md)
-- [VAAPI / Vulkan Video 方案对比](docs/architecture/cuda-compat-plan-integrated.md)
-- [Quick Verify 运行说明](docs/verification/quick-verify.md)
-- [AMD 验证机交接](docs/verification/handoff-amd.md)
-- [Vulkan B 帧挂死调试留档](docs/verification/vulkan-bframe-hang-debug-log.md)
-- [P0 双后端结果记录](docs/evidence/p0-2026-11-12.md)
+- [仓库结构与迁移](docs/仓库结构与迁移.md)
+- [内存与同步模型](docs/architecture/内存与同步模型.md)
+- [CUVID 到 VAAPI 映射表与 P0 API 覆盖](docs/architecture/CUVID到VAAPI映射表.md)
+- [Vulkan 后端实现](docs/architecture/Vulkan后端实现.md)
+- [验证手册](docs/verification/验证手册.md)
+- [P0 闭环验证结果](docs/evidence/P0闭环验证结果_2026-11-12.md)
 
 ## 商标与关联关系
 
-本项目是独立的兼容层研究项目，**与 NVIDIA 无隶属、赞助或背书关系**。CUDA、NVIDIA、NVDEC、
-NPP、NVENC 等名称仅用于描述 API 兼容性；仓库不包含 NVIDIA 专有源码、二进制、SDK 头文件或驱动文件。
-详见 [NOTICE.md](NOTICE.md)。
+本项目是独立的兼容层研究项目，**与 NVIDIA 无隶属、赞助或背书关系**。CUDA、NVIDIA、NVDEC、NPP、NVENC 等名称仅用于描述 API 兼容性；仓库不包含 NVIDIA 专有源码、二进制、SDK 头文件或驱动文件。详见 [NOTICE.md](NOTICE.md)。
 
 ## 许可证
 
-许可证尚未确定：见 [LICENSE-TBD.md](LICENSE-TBD.md)。在许可证确定前，仓库不授予开源许可；
-第三方依赖的许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+许可证尚未确定：见 [LICENSE-TBD.md](LICENSE-TBD.md)。在许可证确定前，仓库不授予开源许可；第三方依赖的许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
 
 ## 贡献与安全
 

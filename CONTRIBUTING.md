@@ -8,7 +8,7 @@ verification boundaries in [README.md](README.md) and [docs/README.md](docs/READ
 - Linux, ROCm 7.x, libva/libdrm, Vulkan loader.
 - FFmpeg 7.1 build artifacts (see [THIRD_PARTY.md](THIRD_PARTY.md)).
 - `nv-codec-headers`, and Mesa headers for the Vulkan backend.
-- An AMD GPU is required for runtime tests; the CPU-side parser tests can run without one.
+- An AMD GPU is required for runtime tests. Most `tests/parser/` tests run on CPU, but `npp_p0_reference.cpp` requires an NVIDIA CUDA/NPP environment.
 
 ## Pull request checklist
 
