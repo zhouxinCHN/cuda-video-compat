@@ -1,13 +1,53 @@
-# CUDA 兼容层总体方案（总纲）
+# CUDA 兼容层总体方案
 
-> 版本：v2.0
+> 版本：v3.0
 > 文档日期：2026-11-12
-> 目标：让基于 CUDA SDK 开发的产品，在自研驱动环境（Mesa + HIP）上**源码级重编译后能跑**，落到非 NVIDIA GPU；不要求严格二进制 drop-in。
-> 职责：本文是**架构与导航**文档，只回答“整体怎么分层、各组件边界是什么、当前走到哪、细节去哪看”。技术证据、决策成本、验证步骤分别由整合版、决策实施版、验证手册承担，本文不重复。
+> 一句话：让客户现有基于 NVIDIA CUDA 的视频软件，**只改少量构建配置、重新编译**，就能跑在自研 GPU 上；当前聚焦“视频解码 → 图像处理”这条主链路。
+> 职责：本文是**管理层摘要 + 架构导航**，给出结论、范围、当前状态、路线、成本摘要和风险。技术证据见[方案整合版](CUDA兼容层方案_整合版.md)，决策细节与排期见[方案决策实施版](CUDA兼容层方案_决策实施版.md)，验证步骤见[验证手册](../verification/验证手册.md)。
+> 读者：管理层、产品负责人、架构与实施团队。
 
 ---
 
-## 1. 一句话架构
+## 1. 一句话结论
+
+**底层数据通路已闭环，产品链路尚未闭环。** 2026-11-12 AMD 验证机上，VAAPI 与 Vulkan 两个后端 × 四路码流各 82/82 帧逐字节一致，mapped 指针可被 HIP kernel 直接寻址；但 FFmpeg 宿主双路径、NPP 联合链路、编码链路和目标平台验收仍未完成。因此可以继续投入主线，**不能据此承诺生产可用或完整 CUDA 兼容**。
+
+---
+
+## 2. 做什么、不做什么
+
+| NVIDIA 能力 | 翻译到 | 当前承诺 |
+|---|---|---|
+| NVDEC / CUVID 解码 | VAAPI（默认）/ Vulkan Video（Tier 2 备选） | H.264、8-bit、4:2:0、NV12 |
+| NPP 图像处理 | HIP kernel | FFmpeg 实际使用的 3 个函数 |
+| libcuda | HIP 运行时 | 仅支撑上述链路的必要子集 |
+| NVENC 编码 | — | **不在当前范围** |
+
+不承诺：完整 CUDA/NPP 二进制 drop-in、任意现有应用兼容、H.264 以外的 codec、目标平台性能达标。逐项符号范围见 [CUVID 到 VAAPI 映射表与 P0 API 覆盖](CUVID到VAAPI映射表.md)。
+
+---
+
+## 3. 当前状态（2026-11-12）
+
+**已通过**：
+
+- 两个解码后端 × 四路码流，每后端 **82/82 帧**与软件参考逐字节一致；
+- `verify_kernel_read` 两个后端 `errors=0`，mapped 指针可被 HIP kernel 直接按 pitch 寻址；
+- Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复（视频会话内存 use-after-free）；
+- parser 复用、libcuda 功能子集（47 项）、同步协议 S1–S8 通过。
+
+**尚未通过**：
+
+- FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）的正式像素与零拷贝验收；
+- NPP 3 个函数的 AMD 实现及“解码 → NPP”联合链路；
+- 编码链路（实验 D 输出异常，暂停）；
+- 多流、seek/flush、动态分辨率、目标平台与 1/8 路 30 分钟稳定性。
+
+完整结果与“能/不能证明什么”见 [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md)。
+
+---
+
+## 4. 架构：双轨并行
 
 ```text
 用户 CUDA 产品源码
@@ -21,120 +61,78 @@
                                   └─ libnvidia-encode.so.1（不在 P0）
 ```
 
-两条轨道解决的是不同问题：
-
 | 轨道 | 管什么 | 当前定位 |
 |---|---|---|
-| **轨 1：HIPIFY** | 用户自己写的 `__global__` kernel、`cudaMalloc`、kernel launch | 保留的能力，**不属于 P0 交付组件**；客户有自研 kernel 时再启用 |
-| **轨 2：shim 库** | 用户调用的 NVIDIA 库 API（CUVID / libcuda / NPP） | **P0 主体**；解码链路已通，NPP 与编码未验收 |
+| 轨 1：HIPIFY | 用户自己写的 CUDA kernel、`cudaMalloc`、kernel launch | 保留能力，**不属于 P0 交付组件**；客户有自研 kernel 时再启用 |
+| 轨 2：shim 库 | 用户调用的 NVIDIA 库 API（CUVID / libcuda / NPP） | **P0 主体**；解码链路已通，NPP 与编码未验收 |
 
 HIPIFY 不能翻译 NVDEC/NVENC/NPP，因为 ROCm 没有对应库；这些必须由 shim 重实现。详见 [HIPIFY 调研](HIPIFY调研.md)。
 
----
+**数据通路**：
 
-## 2. 范围与不承诺项
-
-**P0 范围**：H.264、8-bit、4:2:0、NV12 的 NVDEC/CUVID 解码；FFmpeg `h264_cuvid` / `h264_nvdec` 宿主；FFmpeg `scale_npp` 实际使用的 3 个 NPP 函数。
-
-**明确不承诺**：
-
-- NVENC 与编码数据通路；
-- H.264 以外的 codec、非 NV12、非 8-bit 4:2:0；
-- 场/MBAFF、完整 CUDA/NPP 二进制 drop-in、任意现有应用兼容；
-- 目标平台性能达标；P0 只记录性能，不设通过阈值。
-
-符号范围与逐项映射见 [CUVID 到 VAAPI 映射表与 P0 API 覆盖](CUVID到VAAPI映射表.md)。
+- VAAPI：线性 surface + dma-buf + HIP 导入，真零拷贝；
+- Vulkan Video：解码输出必须是 OPTIMAL tiling，需一次 `vkCmdCopyImageToBuffer` 转线性，无 CPU 中转但不是严格零拷贝；
+- 两条路径的内存与同步契约见[内存与同步模型](内存与同步模型.md)。
 
 ---
 
-## 3. 组件边界
+## 5. 技术路线怎么选
 
-| 组件 | 职责 | 当前状态 |
+| 路线 | 结论 | 理由 |
 |---|---|---|
-| `libcuda.so.1` | 设备、上下文、内存、流/事件等 driver API 的 HIP 映射 | 82 个必需符号可加载；功能子集 47 项通过；**不构成完整 ABI/UVM 验收** |
-| `libnvcuvid.so.1` | CUVID parser、decoder、`cuvidMapVideoFrame64` / `cuvidUnmapVideoFrame64` | VAAPI 与 Vulkan 双后端；P0 四路码流各 82/82 帧逐字节一致 |
-| NPP shim | NPP 3 个 P0 函数的 HIP kernel 实现 | 方案与 NVIDIA 参考输出就绪；**AMD 侧尚未写实现，联合链路未通过** |
-| `libnvidia-encode.so.1` | NVENC 编码 | **不在 P0**；旧映射表仅作历史参考 |
+| **VAAPI 转接** | **主线，默认** | 驱动成熟、线性 surface 可做真零拷贝、Linux 近期可交付 |
+| **Vulkan Video 转接** | **Tier 2 备选，默认关闭** | 跨平台潜力好，但解码输出必须多一次 GPU 内拷贝，宿主与多流证据少 |
+| **Mesa 新增 frontends** | **本期排除** | 6～12 个月量级，需要长期驱动团队，不解决 NPP/客户 kernel |
 
-解码后端：
-
-- **VAAPI（默认，Tier 1）**：线性 surface + dma-buf + HIP 导入，真零拷贝；
-- **Vulkan Video（Tier 2）**：解码输出必须是 OPTIMAL tiling，需一次 `vkCmdCopyImageToBuffer` 转线性，无 CPU 中转但不是严格零拷贝。
-
-两条路径的内存与同步契约见[内存与同步模型](内存与同步模型.md)。
+选择依据、三种路线的优缺点和适用条件见[决策实施版](CUDA兼容层方案_决策实施版.md) §4–§5。历史 15 组格式对比中，VAAPI 与 RTX 4060 为 10 项一致、5 项领先、0 项落后；该矩阵只作路线参考，P0 只承诺 H.264/NV12。
 
 ---
 
-## 4. 已确认的关键决策
+## 6. 成本、周期与人力
 
-| 决策点 | 结论 |
+以 VAAPI 主线、当前已确认范围估算：
+
+- **一期（功能兼容验收）**：8～10 周；
+- **二期（真实业务与生产交付）**：4～6 周；
+- **合计**：12～16 周（约 3～4 个月），前提是范围冻结、目标平台可用、人员到位；
+- **人力**：4.0～4.5 FTE（核心 3 人 + 测试/构建 1.0～1.5）；
+- Vulkan 正式支持另加：一期 10～12 周，3～4 人 + 0.5～1 测试；
+- Mesa 方案：6～12 个月，单独立项。
+
+以上是规划估算，不是报价或固定承诺。详细排期、Gate 和人力拆分见[决策实施版](CUDA兼容层方案_决策实施版.md) §7。
+
+---
+
+## 7. 主要风险
+
+1. **宿主双路径**：`h264_nvdec` 零拷贝和 `h264_cuvid` 像素尚未正式验收；这是从“数据通路”到“可交付”的最大缺口。
+2. **NPP 数值与法律**：3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；NPP 头文件采用“用户自带授权头文件”的路线 A。
+3. **目标平台差异**：AMD 验证机的布局、驱动和性能结论不能直接替代自研平台。
+4. **长尾场景**：多流、seek/flush、动态分辨率、1/8 路 30 分钟稳定性尚未覆盖。
+5. **同步异步化**：跨栈异步 fence 未落地；当前主机同步可用，但会影响高吞吐流水线。
+
+---
+
+## 8. 下一步
+
+1. 完成 FFmpeg `h264_cuvid` / `h264_nvdec` 双路径像素与零拷贝验收；
+2. 实现 NPP 3 个函数并打通“解码 → NPP”联合链路；
+3. 在目标平台复跑底层能力门禁（VAAPI/HIP/DMA-BUF/线性布局）；
+4. 再评估 Vulkan 是否升级为正式后端；在此之前保持 Tier 2。
+
+---
+
+## 9. 文档导航
+
+| 想了解 | 看哪里 |
 |---|---|
-| 兼容层级 | 源码级重编译；不承诺严格二进制兼容 |
-| 默认解码后端 | VAAPI；Vulkan Video 为 Tier 2 备选，默认关闭 |
-| parser | 复用 FFmpeg 7.1 的 9 个解析对象 + `libavutil`；VAAPI 参数填充逻辑自写 |
-| NPP 头文件 | 路线 A：shim 只产 `.so`，用户自带授权 CUDA SDK 头文件 |
-| 零拷贝 | 边界 1（VAAPI→HIP）与边界 2（HIP→VAAPI）均已验证；编码链路未验收 |
-| 同步基线 | 主机同步；跨栈异步 fence 未落地，sync_file/syncobj 仅为候选 |
-| HIPIFY | 保留但不属于 P0；客户有自研 kernel 时再评估 |
-
----
-
-## 5. 当前状态（2026-11-12）
-
-已通过：
-
-- 两个后端 × 四路码流，每后端 82/82 帧与软件参考逐字节一致；
-- `verify_kernel_read` 两个后端 `errors=0`；
-- Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复；
-- parser 复用、libcuda 功能子集、同步协议 S1–S8 通过。
-
-未通过/未覆盖：
-
-- FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）的正式像素与零拷贝验收；
-- NPP 联合链路、编码链路；
-- 多流、seek/flush、动态分辨率、P010/奇数分辨率；
-- 目标平台、1/8 路 30 分钟稳定性、真实业务性能。
-
-完整结果与“能/不能证明什么”见 [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md)。
-
----
-
-## 6. 路线图
-
-```text
-P0（当前）：
-  ✅ libcuda 符号面与功能子集
-  ✅ CUVID parser + VAAPI 解码/映射/释放 + Vulkan 后端
-  ✅ 双后端四路码流逐字节闭环
-  🔄 FFmpeg 宿主双路径验收
-  ⬜ NPP 3 函数实现与联合链路
-
-P1：
-  ⬜ 多流 / seek / flush / 动态分辨率
-  ⬜ 同步异步化（sync_file/syncobj，需 ROCm 协同）
-  ⬜ NPP 其余重叠能力
-
-P2：
-  ⬜ 编码链路重估；NVENC 不在当前承诺
-  ⬜ 目标平台性能与稳定性
-```
-
-决策依据、成本与阶段门禁见[方案决策实施版](CUDA兼容层方案_决策实施版.md)；完整技术证据与历史版本见[方案整合版](CUDA兼容层方案_整合版.md)。
-
----
-
-## 7. 文档导航
-
-| 文档 | 唯一职责 |
-|---|---|
-| [方案整合版](CUDA兼容层方案_整合版.md) | 技术事实、实验证据、数据通路、同步、ABI、遗留项与版本历史 |
-| [方案决策实施版](CUDA兼容层方案_决策实施版.md) | 路线选型、成本/周期、人力、法务、验收门禁 |
-| [方案优化版](CUDA兼容层方案_优化版.md) | 管理层速读：一页纸结论、当前状态、剩余缺口 |
-| [内存与同步模型](内存与同步模型.md) | UVA/UVM、map 契约、VAAPI/Vulkan 导出导入、同步基线、零拷贝结论 |
-| [CUVID 到 VAAPI 映射表与 P0 API 覆盖](CUVID到VAAPI映射表.md) | 符号范围、函数/结构体映射、parser 复用、libcuda 状态 |
-| [NVDEC 与 VAAPI 解码对比](NVDEC与VAAPI解码对比.md) | 历史格式矩阵与 NVDEC 直测性能 |
-| [NPP 兼容方案与 VPE 对比](NPP兼容方案与VPE对比.md) | NPP 能力、VPE 对比、许可、库组织与实现 |
-| [Vulkan Video 方案评估](Vulkan_Video方案评估.md) | Vulkan 能力探测、编码风险、选型依据 |
-| [Vulkan 后端实现](Vulkan后端实现.md) | 后端架构、SPS/PPS 接缝、B 帧根因、验证与移植 |
-| [HIPIFY 调研](HIPIFY调研.md) | HIPIFY 能力边界与使用方式 |
-| [验证手册](../verification/验证手册.md) | 环境、构建、快速验证、实验 A–E、判据、排障 |
+| 技术证据、实验与历史 | [方案整合版](CUDA兼容层方案_整合版.md) |
+| 路线、成本、人力、法务、Gate | [方案决策实施版](CUDA兼容层方案_决策实施版.md) |
+| 内存/同步与零拷贝结论 | [内存与同步模型](内存与同步模型.md) |
+| API 范围与字段映射 | [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
+| 历史格式矩阵与 NVDEC 性能 | [NVDEC 与 VAAPI 解码对比](NVDEC与VAAPI解码对比.md) |
+| NPP / VPE | [NPP 兼容方案与 VPE 对比](NPP兼容方案与VPE对比.md) |
+| Vulkan 能力与实现 | [Vulkan Video 方案评估](Vulkan_Video方案评估.md)、[Vulkan 后端实现](Vulkan后端实现.md) |
+| HIPIFY | [HIPIFY 调研](HIPIFY调研.md) |
+| 怎么跑验证 | [验证手册](../verification/验证手册.md) |
+| P0 结果与证据边界 | [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md) |

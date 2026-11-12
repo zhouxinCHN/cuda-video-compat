@@ -745,7 +745,7 @@ FFmpeg 使用 3 个 NPP 函数，不代表其他客户也只使用这 3 个。�
 
 ### 11.3 深入阅读
 
-- [docs/architecture/CUDA兼容层方案_优化版.md](CUDA兼容层方案_优化版.md)：管理层速读版。
+- [docs/architecture/CUDA兼容层总体方案.md](CUDA兼容层总体方案.md)：管理层摘要与架构导航。
 - [docs/architecture/CUDA兼容层方案_整合版.md](CUDA兼容层方案_整合版.md)：技术事实、实验证据和历史记录。
 - [docs/architecture/NVDEC与VAAPI解码对比.md](NVDEC与VAAPI解码对比.md)：历史格式能力对比。
 - [docs/architecture/CUVID到VAAPI映射表.md](CUVID到VAAPI映射表.md)：接口映射与解析实现参考。
