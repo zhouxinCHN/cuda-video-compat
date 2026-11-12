@@ -292,3 +292,8 @@ NVDEC SDK 直测过程中发现的 3 个关键技术点（均在 `nvdec_benchmar
    ```bash
    ./benchmarks/scripts/merge_decode_compare.sh
    ```
+
+---
+
+> 说明：本页是 NVDEC/VAAPI 的格式能力对比。兼容层 P0 的双后端四路码流像素结果见
+> [P0 结果记录](../evidence/p0-2026-11-12.md)。

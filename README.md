@@ -4,7 +4,7 @@
 用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、
 `libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
 
-> 当前定位：**架构与底层可行性验证阶段**，不是生产可用版本。请先阅读
+> 当前定位：**P0 双后端数据通路已验证，业务链路尚未验收**；不是生产可用版本。请先阅读
 > [验证边界](#验证边界)，不要把“底层通路验证通过”当作“业务链路验收通过”。
 
 ## 仓库结构
@@ -120,6 +120,10 @@ make && ./verify_vulkan_video_full
 已记录的结果（详见 [docs/README.md](docs/README.md)）：
 
 - `libcuda` 功能子集 **47 PASS / 0 FAIL**（历史记录）。
+- **2026-11-12 AMD P0 闭环**：两个后端 × 四路码流，每后端 82/82 帧与软件参考逐字节一致（合计 164 帧）；
+  `verify_kernel_read` 两个后端 `errors=0`；`make check` / `check_func` / parser / session 全部 PASS。
+  Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复（视频会话内存 use-after-free），
+  详见 [P0 结果记录](docs/evidence/p0-2026-11-12.md) 和 [B 帧调试留档](docs/verification/vulkan-bframe-hang-debug-log.md)。
 - VAAPI 真实解码 → HIP 读：I / I-P / I-P-B 各 30 帧逐字节一致。
 - 同步协议 S1–S8 通过；S8 1000 帧文件句柄稳定。
 - Vulkan Video 解码 → 拷贝 → 导出 → HIP 读：三类码流各 30 帧逐字节一致，无 fd/显存泄漏。
@@ -127,11 +131,11 @@ make && ./verify_vulkan_video_full
 
 仍**未**完成的验收项：
 
-- VAAPI 后端的 CUVID shim 真实 decode/map 像素链路；
-- `h264_nvdec` 零拷贝在两条后端上的正式验收；
+- FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）的正式像素/零拷贝验收；
 - 多流、seek/flush、动态分辨率、P010/奇数分辨率；
 - 异步跨栈 fence；
-- 目标平台、1/8 路 30 分钟稳定性、真实业务性能。
+- 目标平台、1/8 路 30 分钟稳定性、真实业务性能；
+- 四路 P0 码流已入库；原始运行命令、stdout/环境版本仍需归档（见 P0 结果记录）。
 
 ## 文档
 
@@ -141,6 +145,8 @@ make && ./verify_vulkan_video_full
 - [VAAPI / Vulkan Video 方案对比](docs/architecture/cuda-compat-plan-integrated.md)
 - [Quick Verify 运行说明](docs/verification/quick-verify.md)
 - [AMD 验证机交接](docs/verification/handoff-amd.md)
+- [Vulkan B 帧挂死调试留档](docs/verification/vulkan-bframe-hang-debug-log.md)
+- [P0 双后端结果记录](docs/evidence/p0-2026-11-12.md)
 
 ## 商标与关联关系
 

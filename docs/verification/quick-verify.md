@@ -6,7 +6,7 @@
 |---|---|---|
 | `verify_kernel_read` | 实验 C 只证明 `hipMemcpy` 能读，未证明 kernel 能直接寻址 mapped `dev_ptr` | 30 帧 GPU kernel 的 Y/UV checksum 与 CPU 对同一指针回读一致；`hipEventSynchronize` 后才 unmap |
 | `run_kernel_read.sh` | 同步只做过 S1/S2 协议模拟 | 真实 decode→map→kernel→event→unmap 跑通，VAAPI/VK 两个后端 |
-| `run_ffmpeg_compare.sh` | VAAPI CUVID shim 像素链路未闭合；`h264_nvdec` 零拷贝未验收 | `h264_nvdec`/`h264_cuvid` 输出与软解参考逐字节一致；`h264_nvdec` 在 VAAPI 后端 D2D 拷贝次数为 0 |
+| `run_ffmpeg_compare.sh` | FFmpeg 宿主双路径尚未验收；P0 四路码流已通过直接后端程序 | `h264_nvdec`/`h264_cuvid` 输出与软解参考逐字节一致；`h264_nvdec` 在 VAAPI 后端 D2D 拷贝次数为 0 |
 
 > 注意：`verify_kernel_read` 的 GPU/CPU checksum 读的是同一块 mapped 显存，所以它证明的是“kernel 能按 pitch 正确寻址这块显存”，不是“解码像素一定正确”。像素正确性仍以实验 C / `verify_vk_decode_to_hip` 为准。`h264_cuvid` 的 D2D 拷贝是 FFmpeg `cuviddec.c` 自身行为，不是 shim 引入的。
 
@@ -190,3 +190,16 @@ run_ffmpeg_compare      : vaapi/nvdec pixel=identical D2D=0; vaapi/cuvid pixel=i
 - 这次只补“kernel 可寻址”和“FFmpeg 宿主双路径像素/零拷贝计数”，没有补多流、seek/flush、P010/奇数分辨率、NPP、异步 fence。
 - `verify_kernel_read` 逐帧做 GPU checksum + CPU 回读，适合验证正确性，不适合做性能结论；map/unmap 的耗时和 1/8 路 30 分钟稳定性仍需单独测。
 - VK 的 `h264_nvdec` 直通路径这次只做“先跑、记录行为”，如果失败，先按已知缺口记录，不在这次改动范围内修。
+
+
+## 八、2026-11-12 AMD 结果
+
+本轮在 AMD 验证机上得到：
+
+- `verify_kernel_read`：VAAPI 与 Vulkan 两个后端全部 `errors=0`。
+- 四路码流（`test_p_b_5` / `test_p_b_7` / `test_p_main` / `test_p_66`）在两条后端上各 **82/82 帧逐字节一致**，合计 164 帧。
+- `make check`、`make check_func`、`make verify_cuvid_parser`、`make verify_cuvid_session` 全部 PASS。
+
+本次汇总**未包含** `run_ffmpeg_compare.sh` 的 `h264_nvdec` / `h264_cuvid` 双路径结果，因此
+FFmpeg 宿主零拷贝验收仍需单独执行。完整结果与边界见
+[P0 结果记录](../evidence/p0-2026-11-12.md)。

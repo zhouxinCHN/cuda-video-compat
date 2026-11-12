@@ -35,6 +35,12 @@ BACKENDS=vaapi ./run_kernel_read.sh
 BACKENDS=vaapi ./run_ffmpeg_compare.sh
 ```
 
+## 当前结果
+
+2026-11-12 AMD 验证机：两个后端 × 四路码流，每后端 82/82 帧逐字节一致（合计 164 帧）；
+`verify_kernel_read` errors=0；`make check` / `check_func` / parser / session 全 PASS。
+详见 [P0 结果记录](../docs/evidence/p0-2026-11-12.md)。
+
 ## 注意
 
 - `vulkan-video/full/` 依赖系统 Vulkan-Headers 版本；当前以 AMD 验证机的 Mesa 25.x 头为准，

@@ -1,6 +1,6 @@
 # P0 API 覆盖基线
 
-> 状态：接口范围已确认；parser 复用 FFmpeg 解析已在 AMD 验证机通过 I-only 与 I/P/B 测试；真实 decode/map 像素链路和 FFmpeg 双路径未验收。
+> 状态：接口范围已确认；parser 复用 FFmpeg 解析已在 AMD 验证机通过 I-only 与 I/P/B 测试；P0 双后端四路码流逐字节通过（VAAPI 82/82、Vulkan 82/82），`verify_kernel_read` errors=0；FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）尚未正式验收。
 > 宿主：官方 FFmpeg 7.1 源码，自编译；P0 不承诺不重编译的现有二进制。
 > nv-codec-headers：`610325d019ad75248aa6e7abe0f4909d2ac6bc69`（`n12.1.14.1-1-g610325d`）。
 > parser 实现：复用 FFmpeg `ff_h2645_packet_split` + `ff_h264_decode_seq_parameter_set` + `ff_h264_decode_picture_parameter_set`；`libnvcuvid.so.1` 链接 FFmpeg 7.1 的 8 个解析对象（`h2645_parse/h264_ps/h2645_vui/h2645data/h264data/golomb/mathtables/refstruct`）与共享 `libavutil.so`。

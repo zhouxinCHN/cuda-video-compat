@@ -125,17 +125,17 @@ HIP kernel/拷贝自动等待，全程无 CPU 参与
 - 动作：
   - 新建程序（建议 `tests/vulkan-video/full/` 下新增，或独立 `tests/zerocopy/verify_vk_decode_to_hip.cpp`），复用现有 V4 的 session 创建逻辑，补上「真实解码 + 拷贝 + 导出」。
   - 按 §3 实现：TRANSFER_SRC usage + barrier 转 layout + 逐平面 `vkCmdCopyImageToBuffer` + 可导出 buffer + `vkGetMemoryFdKHR`。
-- 验收：拷贝出的 linear buffer 内容，用 HIP 读回后与软解参考**逐字节一致**（先跑通 I-only 一帧即可标记本项通过，多帧/多码流留给 P0-3）。
+- 验收：拷贝出的 linear buffer 内容，用 HIP 读回后与软解参考**逐字节一致**（先跑通 I-only 一帧即可标记本项通过，多帧/多码流留给 P0-3）。**✅ 已完成。**
 
 **P0-2 落地「同步桥接」并验证（首期主机同步即可）**
 - 目标：确保解码+拷贝完成后 HIP 才读，无花屏/竞态。
 - 动作：首期用 `vkQueueWaitIdle` + `hipDeviceSynchronize`；异步桥接（§4.2）标记为并行跟进项，不阻塞。
-- 验收：连续多帧读回稳定正确，无偶发错帧。
+- 验收：连续多帧读回稳定正确，无偶发错帧。**✅ 已完成（四路码流 82/82）。**
 
 **P0-3 端到端像素校验（对标 VAAPI 实验 C，核心证据）**
 - 目标：Vulkan 解码 I / IP / IPB 三种码流各 ≥30 帧，HIP 读回逐字节 vs 软解参考。
 - 动作：复用 `tests/zerocopy/` 现有码流和参考文件（见 §6），软解参考可用 FFmpeg 生成。
-- 验收：三码流全逐字节一致 + 无 fd/显存泄漏。
+- 验收：三码流全逐字节一致 + 无 fd/显存泄漏。**✅ 已完成；2026-11-12 扩大到四路码流 82/82。**
 
 > P0-1 + P0-2 + P0-3 本质是一条串联链路，可合并写进**一个程序**，一次跑通即覆盖全部。程序结构建议对标现有 `tests/zerocopy/verify_decode_to_hip.cpp`（VAAPI 版），只是把后端从 VAAPI 换成 Vulkan Video。
 
@@ -235,7 +235,7 @@ HIP kernel/拷贝自动等待，全程无 CPU 参与
 1. **不要**试图让 Vulkan 解码输出 LINEAR —— 规范锁死，改 Mesa 是永久 fork，已否定。
 2. **不要**改 `hipImportExternalMemory` 去"读 tiled" —— tiling 在硬件寻址层，改接口无效。
 3. **不要**在 semaphore（opaque fd）上花时间 —— 跨栈不互认，死胡同，改走 §4.2 的 sync_file 桥接。
-4. **记住**：有方案 ≠ 已验证。本文所有「不再风险点」指的是"实现路径明确 + 有成熟参考"，但 **AMD 机器上的真实像素级验证（P0-3）仍然没做**，这是 VK 后端转正的唯一还缺的证据。
+4. **记住**：有方案 ≠ 已验证。P0-3 的真实像素级验证已完成；剩余证据是 FFmpeg 宿主双路径（尤其 `h264_nvdec` 零拷贝）、多流/seek/flush、动态分辨率与目标平台验收。
 
 ---
 

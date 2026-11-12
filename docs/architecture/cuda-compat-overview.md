@@ -55,7 +55,7 @@ HIPIFY 是**源码翻译工具**，前提是"存在 HIP 对应物"：
 | 产物 | 覆盖接口 | 实现路径 | 状态 |
 |---|---|---|---|
 | `libcuda.so.1` | CUDA driver API（82 必需符号） | 62 映射 HIP + 20 stub | ✅ 已实现+验证 |
-| `libnvcuvid.so.1` | cuvid 解码（底层 12 + parser/source 层） | → VAAPI（libva），parser 复用 FFmpeg | 方案已定 |
+| `libnvcuvid.so.1` | cuvid 解码（底层 12 + parser/source 层） | → VAAPI（libva）/ Vulkan Video，parser 复用 FFmpeg | P0 数据通路已验证（双后端四路码流 82/82） |
 | `libnvidia-encode.so.1` | nvEncodeAPI（2 入口 + 34 函数表） | → VAAPI（EncSlice） | 方案已定 |
 | `libnpp*.so.11`（11 子库） | NPP API（nppi/npps） | HIP kernel 重实现 | 方案已定 |
 

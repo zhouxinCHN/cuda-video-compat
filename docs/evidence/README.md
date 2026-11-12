@@ -8,6 +8,7 @@
 - `results/`：NPP / NVDEC / VAAPI 对比结果（JSON、Markdown、日志、SHA256、小体积样本）。
 - `p0-nvidia-hardware.log`：NVIDIA 参考机硬件与驱动信息。
 - `p0-nvidia-npp-check.log`：NPP 参考输出检查日志。
+- `p0-2026-11-12.md`：AMD 验证机 P0 双后端 × 四路码流结果汇总（码流已入库；原始命令/日志仍待补）。
 
 ## 约定
 

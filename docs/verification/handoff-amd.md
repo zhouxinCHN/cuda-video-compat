@@ -18,9 +18,9 @@
 - `libnvcuvid.so.1`（CUVID shim）原本只有 VAAPI 后端。现已新增 **Vulkan Video 后端**
   （`src/vulkan_h264_decoder.{h,cpp}`），通过 `DecoderBackend` 接口与 VAAPI 后端并列，
   用环境变量 `CUVID_SHIM_BACKEND=vk` 切换。
-- 开发机是 **NVIDIA RTX 4060**，无 AMD GPU、无 libvulkan 的 video 命令导出，
-  所以**只做了 `-fsyntax-only` 语法自检（7 个编译单元全部 0 error）**，**从未编译链接、从未运行**。
-- 你要做的是：在 AMD 机上 `make libnvcuvid.so.1` 编译通过 → 跑通解码 → 逐字节校验。
+- 交接时开发机是 **NVIDIA RTX 4060**，无 AMD GPU、无 libvulkan 的 video 命令导出，只做了
+  `-fsyntax-only` 语法自检；**2026-11-12 已在 AMD 验证机完成编译、运行和四路 P/B 码流逐帧逐平面校验**。
+- 原交接任务已完成；下面的命令保留用于复现、排障和后续 P1 验收。
 
 ---
 
@@ -122,6 +122,10 @@ nv-codec-headers/include/            # 含 ffnvcodec/dynlink_cuda.h、dynlink_cu
 testdata/h264/test_320x240.h264     # I-only
 testdata/h264/test_p_320x240.h264   # I/P
 testdata/h264/test_b_320x240.h264   # I/P/B
+testdata/h264/test_p_b_5.h264       # P0 B 帧回归组（9 帧）
+testdata/h264/test_p_b_7.h264       # P0 B 帧回归组（13 帧）
+testdata/h264/test_p_main.h264      # P0 无 B 帧对照（30 帧）
+testdata/h264/test_p_66.h264        # P0 Constrained Baseline 对照（30 帧）
 ```
 
 > 参考 YUV 不随仓库提交；在 `tests/zerocopy/` 下运行

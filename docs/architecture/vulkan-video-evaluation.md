@@ -371,6 +371,7 @@ hipImportExternalSemaphore: operation not supported
 - [x] 已细化「Vulkan Video 编码」失败风险与多级降级策略（§6）
 - [x] **已在 AMD 机器完成实测**（RX 7900 XTX，结果见 §7）
 - [x] 实测结论：编解码能力完整，但零拷贝受限（只支持 OPTIMAL tiling），异步同步不可用
-- [ ] 根据实测结果，决定是否投入 Vulkan Video 后端开发
+- [x] 已实现 Tier 2 Vulkan Video 后端并完成 P0 数据通路（2026-11-12：四路码流 82/82 逐字节、`verify_kernel_read` errors=0）
+- [ ] 是否升级为主线，仍待 FFmpeg 宿主双路径、多流/seek 和目标平台验收
 
 **总风险定调**：Vulkan Video **编解码能力完整**，但**零拷贝和异步同步受限**。VAAPI 仍然是首选（零拷贝 + 异步同步），Vulkan Video 作为 Tier 2 备选（需要接受 tiled 转换 + 主机同步）。

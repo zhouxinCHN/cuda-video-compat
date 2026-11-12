@@ -35,6 +35,7 @@
 | [Quick Verify](verification/quick-verify.md) | mapped pointer kernel 读取、FFmpeg 双路径像素、零拷贝计数 |
 | [AMD 验证机交接](verification/handoff-amd.md) | Vulkan 后端在 AMD 机上的构建、运行与排障 |
 | [Vulkan B 帧挂死调试留档](verification/vulkan-bframe-hang-debug-log.md) | VCN ring timeout 的现场、已排除假设、测量陷阱、可复现验证命令 |
+| [P0 双后端结果（2026-11-12）](evidence/p0-2026-11-12.md) | 四路码流 × VAAPI/Vulkan 的逐字节结果、修复与边界 |
 
 ## 证据
 

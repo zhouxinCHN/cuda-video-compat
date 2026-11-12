@@ -1,7 +1,7 @@
 # CUDA 解码链路内存管理与同步模型
 
-> 版本：v1.0  
-> 文档日期：2026-11-10  
+> 版本：v1.1
+> 文档日期：2026-11-12
 > 范围：NVDEC/CUVID 解码 → CUDA/HIP 计算这一段链路的显存管理与同步；分别覆盖 VAAPI 后端与 Vulkan Video 后端。  
 > 依据：本目录《docs/architecture/cuda-compat-plan-integrated.md》《docs/architecture/cuda-compat-plan-decisions.md》《docs/architecture/cuvid-vaapi-mapping.md》及 `cuda_shim/`、`tests/zerocopy/`、`tests/sync/` 现有实现与验证记录。  
 > 边界：所述验证结果来自 AMD 验证机（Radeon RX 7900 XTX / RADV / ROCm 7.x），不等同于自研目标平台验收；当前功能范围以 H.264、8-bit、4:2:0、NV12 为主。
@@ -15,7 +15,7 @@
 3. **VAAPI 路径可以做到真零拷贝**：线性 surface 导出 dma-buf，HIP 直接导入并映射；解码输出本身就是计算要读的那块显存。
 4. **Vulkan Video 路径多一次 GPU 内拷贝**：Vulkan Video 只允许 OPTIMAL/tiled 输出，必须先用 `vkCmdCopyImageToBuffer` 转成线性 buffer，再导出给 HIP。它是“无 CPU 中转”，但不是严格零拷贝。
 5. **同步目前是主机同步基线**：VAAPI 用 `vaSyncSurface`，Vulkan 用 semaphore + fence + 主机等待，计算侧用 HIP stream/event。跨栈异步 fence（sync_file/syncobj）尚未落地，属于厂商/Mesa/ROCr 协同项。
-6. **已验证的是底层数据通路和协议，不是完整产品链路。** 实验 C 与 Vulkan 验证程序证明了“真实解码 → 导出 → HIP 逐字节正确”；同步测试 S1–S8 证明了顺序与资源管理协议；但 VAAPI 后端的 CUVID shim 像素链路、`h264_nvdec` 零拷贝验收仍未闭合。
+6. **已验证的是底层数据通路和协议，不是完整产品链路。** 实验 C、Vulkan 验证程序和 2026-11-12 的 P0 四路码流证明了“真实解码 → 导出 → HIP 逐字节正确”；`verify_kernel_read` 证明 mapped 指针的 kernel 可访问性；同步测试 S1–S8 证明了顺序与资源管理协议。但 FFmpeg 宿主双路径/`h264_nvdec` 零拷贝仍未验收。
 
 ---
 
@@ -292,7 +292,7 @@ flowchart TD
 
 **这个验证证明了什么**：libva 真实解码后的像素，经过线性 surface 导出和 dma-buf 导入，可以被 HIP 逐字节正确读取；线性直通和 pitch/offset 处理是成立的。
 
-**这个验证没有证明什么**：它不是 `libnvcuvid.so.1` 的端到端验证，没有经过 `cuvidCreateDecoder` / `cuvidDecodePicture` / `cuvidMapVideoFrame64` 的 shim 路径，也没有经过 FFmpeg 的 `h264_cuvid` / `h264_nvdec` 宿主。VAAPI 后端的 CUVID shim 像素链路仍需按方案 §1.7 第 1B 步单独验收。
+**这个验证没有证明什么**：它不是 `libnvcuvid.so.1` 的端到端验证，没有经过 `cuvidCreateDecoder` / `cuvidDecodePicture` / `cuvidMapVideoFrame64` 的 shim 路径，也没有经过 FFmpeg 的 `h264_cuvid` / `h264_nvdec` 宿主。P0 的 `verify_kernel_read` 另行覆盖了 shim 的 decode/map/kernel 读取通路，但“shim 输出与软解逐字节”以及 FFmpeg `h264_cuvid`/`h264_nvdec` 双路径仍需按方案 §1.7 第 1B 步单独验收。
 
 ### 3.3 同步验证：`tests/sync/verify_sync.cpp`
 
@@ -458,7 +458,7 @@ flowchart TD
 | 解码→计算同步 | `vaSyncSurface` 在 map 入口 | Vulkan semaphore + fence，`decode()` 末尾主机等待 |
 | 计算→后续同步 | `hipEventRecord` + `hipEventSynchronize` | 同样主机同步基线 |
 | 异步跨栈 fence | 未落地；sync_file/syncobj 是候选 | 未落地；external fence fd → sync_file → syncobj 是候选 |
-| 当前验证 | 实验 C 底层通路通过；CUVID shim 像素链路未闭合 | 解码→拷贝→导出→HIP 读取已闭合；`h264_nvdec` 零拷贝未验收 |
+| 当前验证 | P0 四路码流 82/82 逐字节一致；CUVID shim 的 kernel 读取 errors=0；FFmpeg 宿主零拷贝未验收 | P0 四路码流 82/82 逐字节一致；`h264_nvdec` 零拷贝未验收 |
 | 主要约束 | LINEAR、pitch 对齐、连续 NV12 | tiled 转换成本、DPB/output 分离、双队列 semaphore 桥接 |
 
 ---
@@ -472,7 +472,8 @@ flowchart TD
 | 同步协议 | `tests/sync/verify_sync.cpp` | S1–S8 全 PASS；S8 fd 10→10 | 主机同步顺序、池复用、DPB 引用、flush/destroy、多线程、fd 长稳 | 真实码流像素；1/8 路 30 分钟业务稳定性 |
 | Vulkan Video 解码→HIP 读 | `tests/zerocopy/verify_vk_decode_to_hip.cpp` | I/I-P/I-P-B 各 30 帧逐字节一致；fd 无泄漏 | VK 解码、tiled→linear 拷贝、导出、HIP 导入读取正确 | `h264_nvdec`、多流、crop、动态分辨率、其他 codec |
 | Vulkan 后端接入宿主 | `cuda_shim/src/vulkan_h264_decoder.cpp` + `CUVID_SHIM_BACKEND=vk` | FFmpeg `h264_cuvid` 30 帧 0 decode error；shim 后端 I/IP/IPB 30 帧逐字节一致 | 后端抽象和 FFmpeg 宿主加载路径可用 | 完整业务链路与目标平台性能 |
-| VAAPI CUVID shim 像素 | `cuda_shim/src/vaapi_h264_decoder.cpp` + `libnvcuvid.cpp` | 未闭合 | 代码路径已实现 | 真实 decode/map 像素和 FFmpeg 双路径 |
+| P0 双后端闭环（2026-11-12） | `tests/zerocopy/verify_decode_to_hip.cpp` + `verify_vk_decode_to_hip.cpp` + `cuda_shim/tests/verify_kernel_read.cpp` | 四路码流：VAAPI 82/82、Vulkan 82/82 逐字节一致；`verify_kernel_read` errors=0 | 两条后端的数据通路、mapped `dev_ptr` 的 kernel 可访问性、event→unmap 顺序 | FFmpeg 宿主双路径、多流/seek/动态分辨率、目标平台性能 |
+| VAAPI CUVID shim 像素 | `cuda_shim/src/vaapi_h264_decoder.cpp` + `libnvcuvid.cpp` | 经 shim 的 `verify_kernel_read` errors=0；四路码流 bit-exact 由直接后端程序验证；FFmpeg 宿主未验收 | shim 的 decode/map/kernel 读取通路可用 | shim 输出与软解参考逐字节、FFmpeg 双路径零拷贝 |
 
 ---
 
@@ -483,7 +484,7 @@ flowchart TD
 3. **VAAPI 路径**：线性 surface 可以做到真零拷贝；`h264_nvdec` 是零拷贝验收路径，`h264_cuvid` 的 `cuMemcpy2DAsync` 是 FFmpeg 自身行为，需单独记录。
 4. **Vulkan 路径**：由于 OPTIMAL/tiled 的规范约束，必须多一次 GPU 内拷贝；它能做到“无 CPU 中转”，但不能称为严格零拷贝。该路径的解码→拷贝→导出→HIP 读取已经逐字节验证。
 5. **同步层面**：当前是主机同步基线。`vaSyncSurface` / Vulkan fence + HIP event 能保证顺序，S1–S8 协议验证通过；跨栈全异步流水线需要 DRM sync_file/syncobj 桥接，尚未实现，不应对外承诺。
-6. **验证边界**：底层数据通路和协议已经有关键证据，但 VAAPI 后端的 CUVID shim 像素链路、`h264_nvdec` 零拷贝、多流/复杂码流、自研目标平台和真实业务性能仍未验收。文档和对外表述应区分“底层通路通过”“shim 路径通过”“业务链路通过”三个层级，不能混报。
+6. **验证边界**：P0 已用四路码流在两个后端完成逐字节闭环，`verify_kernel_read` 也证明 mapped 指针可被 kernel 直接寻址；但 FFmpeg 宿主双路径/`h264_nvdec` 零拷贝、多流/复杂码流、自研目标平台和真实业务性能仍未验收。文档和对外表述应区分“底层通路通过”“shim 路径通过”“业务链路通过”三个层级，不能混报。
 
 ---
 
@@ -501,3 +502,4 @@ flowchart TD
 - `tests/zerocopy/verify_vk_decode_to_hip.cpp`：Vulkan Video 数据通路验证。
 - `tests/sync/verify_sync.cpp`：S1–S8 同步与资源管理验证。
 - `cuda_shim/tests/test_func_full.cpp`：libcuda 功能子集验证。
+- `docs/evidence/p0-2026-11-12.md`：P0 双后端四路码流结果。

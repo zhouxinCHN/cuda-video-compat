@@ -8,7 +8,7 @@
 |---|---|---|---|---|
 | A | parser 复用（SPS/PPS/填充） | §4.6 / §7.3 源文件已丢 | 本机 CPU | ✅ 已跑通 8/8 |
 | B | FFmpeg 干净(LGPL)构建 .o 可提取 | §4.6 法律 / §4.14 依赖 | 本机 CPU | ✅ 已跑通 |
-| C | 真实解码→HIP 读端到端 | §1.7第1步 / §4.2-A4 / R1 | AMD GPU | ✅ I-only 11/11；I/P 帧版 12/12；I/P/B 帧版 12/12（30 帧逐字节一致） |
+| C | 真实解码→HIP 读端到端 | §1.7第1步 / §4.2-A4 / R1 | AMD GPU | ✅ I-only 11/11；I/P 帧版 12/12；I/P/B 帧版 12/12；2026-11-12 P0 四路码流双后端各 82/82 逐字节一致 |
 | D | HIP 写→VAAPI 编码端到端 | §1.7第2步 / §4.10 / R2 | AMD GPU | 编译通过，pipeline 10/10 但输出码流异常（暂停，先做 E） |
 | E | 目标平台可移植性 5 项探测 | §4.9 / §1.7第0步 / R6 | AMD/目标平台 | ✅ 已跑通 6/6 |
 
@@ -95,6 +95,9 @@ make -f verify_decode_to_hip.make FFMPEG=/path/to/ffmpeg-src ROCM_DIR=/opt/rocm 
 - **E**：任一项缺失 → 对应零拷贝/同步链路降级，触发 §1.7 第0步范围复审。
 
 ## 已知限制与待办
+
+- 2026-11-12 P0 结果：四路码流（`test_p_b_5`、`test_p_b_7`、`test_p_main`、`test_p_66`）在 VAAPI/Vulkan 两个后端上各 82/82 帧逐字节一致；`verify_kernel_read` errors=0。四路码流已入库 `testdata/h264/`，原始命令/日志仍待归档，详见 [P0 结果记录](../evidence/p0-2026-11-12.md)。
+
 
 - 实验 C 已升级为**I/P/B 帧版**：在 I/P 帧（1 IDR + 29 P）基础上，新增 B 帧支持——`direct_spatial_mv_pred` 解析（ref_count 前）、双参考列表按 POC 排序（list0=[POC<cur 降序]+[POC>cur 升序]，list1 反之）、`weighted_bipred_idc` 检测、**程序内显示序重排**（解码序收集全部帧 → 按 POC 稳定排序 → 与显示序软解参考逐帧比对）。范围：frame_mbs_only=1、poc_type=0/2、weighted_pred=0、无场/MBAFF。长期参考、crop、seek 仍是后续。
 - 实验 C 修掉的单帧版 3 个 bug（profile 映射 / separate layers 导出 / pitch 逐行拷贝）在 I/P/B 帧版中全部保留修复。
