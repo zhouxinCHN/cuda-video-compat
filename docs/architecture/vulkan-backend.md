@@ -229,10 +229,10 @@ FFmpeg 的做法是把它放在 `common->mem[]` 里，只有 `ff_vk_video_common
 
 | 码流 | 帧数 | Vulkan | VAAPI |
 |---|---|---|---|
-| `test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
-| `test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
-| `test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
-| `test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+| `testdata/h264/test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
+| `testdata/h264/test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
+| `testdata/h264/test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+| `testdata/h264/test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
 
 > 早期文档里"VAAPI 后端输出平坦 0x80"是**测量方法错误**（把 pitch 跨行的 NV12 当 planar
 > 去比），VAAPI 后端同样逐帧位精确。同理"色度 PSNR u/v ≈ 6 dB"也是测量问题。

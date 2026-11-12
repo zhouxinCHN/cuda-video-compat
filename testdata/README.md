@@ -4,10 +4,20 @@
 
 | 文件 | 内容 | 帧数 |
 |---|---|---|
-| `h264/test_320x240.h264` | I-only，320×240 | 30 |
-| `h264/test_p_320x240.h264` | I/P，320×240（1 IDR + 29 P） | 30 |
-| `h264/test_b_320x240.h264` | I/P/B，320×240（1 I + 10 P + 19 B） | 30 |
-| `h264/test_p_b.h264` | I/P/B，320×240，shim 快速验证用 | 30 |
+| `h264/test_320x240.h264` | I-only，320×240，Constrained Baseline | 30 |
+| `h264/test_p_320x240.h264` | I/P，320×240（1 IDR + 29 P），Main | 30 |
+| `h264/test_b_320x240.h264` | I/P/B，320×240（1 I + 10 P + 19 B），Main | 30 |
+| `h264/test_p_b.h264` | I/P/B，320×240，Main，Level 2.0，`max_num_ref_frames=4`，shim 快速验证用 | 30 |
+| `h264/test_p_b_5.h264` | I/P/B，320×240，Main，显示序 `I B B B P` 交替 | 9 |
+| `h264/test_p_b_7.h264` | 同上，更长（3 个 P 周期） | 13 |
+| `h264/test_p_main.h264` | I/P（无 B），320×240，Main，Level 2.0 | 30 |
+| `h264/test_p_66.h264` | I/P（无 B），320×240，Constrained Baseline（profile_idc 66） | 30 |
+
+后四个是 **B 帧回归组**：`test_p_b_*` 覆盖"解码序前几帧参考槽数递增 / 参考表修改"的路径，
+`test_p_main` 与 `test_p_66` 是对照组（无 B 帧、两种 profile）。这四个码流就是
+[Vulkan 后端说明 §8.3](../docs/architecture/vulkan-backend.md#83-验证结果) 里那组
+逐帧逐平面位精确结果的输入，复现命令见
+[B 帧挂死调试留档 §5](../docs/verification/vulkan-bframe-hang-debug-log.md#5-验证命令可复现)。
 
 ## 生成参考 YUV
 

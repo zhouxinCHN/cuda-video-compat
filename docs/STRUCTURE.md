@@ -106,7 +106,11 @@
 │       ├── test_320x240.h264
 │       ├── test_p_320x240.h264
 │       ├── test_b_320x240.h264
-│       └── test_p_b.h264
+│       ├── test_p_b.h264
+│       ├── test_p_b_5.h264          # B 帧回归组
+│       ├── test_p_b_7.h264
+│       ├── test_p_main.h264
+│       └── test_p_66.h264
 │
 └── scripts/
     └── check_links.py
@@ -151,6 +155,7 @@
 | `results/*` | `docs/evidence/results/*` |
 | `p0-*.log` | `docs/evidence/*` |
 | `test_*.h264`（多处副本） | `testdata/h264/`（去重） |
+| `/tmp/test_p_b_5.h264`、`test_p_b_7.h264`、`test_p_main.h264`、`test_p_66.h264`（B 帧验证用，原先只在临时目录） | `testdata/h264/`（随修复一起入库，保证验证可复现） |
 
 ## 不进入仓库的内容
 

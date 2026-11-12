@@ -107,20 +107,20 @@
 
 ## 5. 验证命令（可复现）
 
-表里的 `test_p_b_5` / `test_p_b_7` / `test_p_main` / `test_p_66` 是当时本地的码流变体；
-仓库里可直接用 `testdata/h264/` 下的同类 P/B 码流套同样的命令（帧数会不同）。
+四个码流都已在仓库里：`testdata/h264/test_p_b_5.h264`（9 帧）、`test_p_b_7.h264`（13 帧）、
+`test_p_main.h264`（30 帧）、`test_p_66.h264`（30 帧）。
 
 ```bash
 # 1) 解码（两个后端各一次），同时 dump 每帧 NV12
 cd cuda_shim
 LD_LIBRARY_PATH=. CUVID_SHIM_BACKEND=vk RADV_PERFTEST=video_decode \
-  CUVID_DUMP_NV12_DIR=/tmp/vkd ./verify_kernel_read /path/to/test_p_main.h264
+  CUVID_DUMP_NV12_DIR=/tmp/vkd ./verify_kernel_read ../testdata/h264/test_p_b_5.h264
 
 LD_LIBRARY_PATH=. CUVID_SHIM_BACKEND=vaapi \
-  CUVID_DUMP_NV12_DIR=/tmp/vad ./verify_kernel_read /path/to/test_p_main.h264
+  CUVID_DUMP_NV12_DIR=/tmp/vad ./verify_kernel_read ../testdata/h264/test_p_b_5.h264
 
 # 2) 软解参考（显示序，planar yuv420p）
-ffmpeg -v error -y -i /path/to/test_p_main.h264 -f rawvideo -pix_fmt yuv420p /tmp/ref.yuv
+ffmpeg -v error -y -i ../testdata/h264/test_p_b_5.h264 -f rawvideo -pix_fmt yuv420p /tmp/ref.yuv
 
 # 3) 逐帧逐平面比较（注意 pitch 跨行 + NV12 交织）
 python3 - <<'PY'
@@ -144,10 +144,10 @@ PY
 
 | 码流 | 帧数 | Vulkan | VAAPI |
 |---|---|---|---|
-| `test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
-| `test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
-| `test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
-| `test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+| `testdata/h264/test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
+| `testdata/h264/test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
+| `testdata/h264/test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+| `testdata/h264/test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
 
 ---
 
