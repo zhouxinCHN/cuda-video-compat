@@ -1,0 +1,156 @@
+
+===== NVIDIA runtime =====
+Wed Nov  4 11:42:52 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 4060        Off |   00000000:03:00.0 Off |                  N/A |
+| 40%   40C    P8            N/A  /  115W |     762MiB /   8188MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A          135843      G   /usr/lib/xorg/Xorg                       73MiB |
+|    0   N/A  N/A          135976      G   /usr/bin/gnome-shell                      6MiB |
+|    0   N/A  N/A          489590      C   ffmpeg                                   94MiB |
+|    0   N/A  N/A          493542      C   ffmpeg                                   94MiB |
+|    0   N/A  N/A          493555      C   ffmpeg                                   94MiB |
+|    0   N/A  N/A          529571      C   ffmpeg                                   94MiB |
+|    0   N/A  N/A          530115      C   ffmpeg                                   94MiB |
+|    0   N/A  N/A          854794      G   /usr/lib/xorg/Xorg                       35MiB |
++-----------------------------------------------------------------------------------------+
+name, driver_version, compute_cap
+NVIDIA GeForce RTX 4060, 595.99.02, 8.9
+
+===== CUDA compiler =====
+/usr/bin/nvcc
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2021 NVIDIA Corporation
+Built on Thu_Nov_18_09:45:30_PST_2021
+Cuda compilation tools, release 11.5, V11.5.119
+Build cuda_11.5.r11.5/compiler.30672275_0
+
+===== NPP headers =====
+/usr/include/nppcore.h
+/usr/include/nppdefs.h
+/usr/include/npp.h
+/usr/include/nppi_arithmetic_and_logical_operations.h
+/usr/include/nppi_color_conversion.h
+/usr/include/nppi_data_exchange_and_initialization.h
+/usr/include/nppi_filtering_functions.h
+/usr/include/nppi_geometry_transforms.h
+/usr/include/nppi.h
+/usr/include/nppi_linear_transforms.h
+/usr/include/nppi_morphological_operations.h
+/usr/include/nppi_statistics_functions.h
+/usr/include/nppi_support_functions.h
+/usr/include/nppi_threshold_and_compare_operations.h
+/usr/include/npps_arithmetic_and_logical_operations.h
+/usr/include/npps_conversion_functions.h
+/usr/include/npps_filtering_functions.h
+/usr/include/npps.h
+/usr/include/npps_initialization.h
+/usr/include/npps_statistics_functions.h
+/usr/include/npps_support_functions.h
+
+===== NPP libraries =====
+/usr/lib/x86_64-linux-gnu/libnppial.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppif.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppial_static.a
+/usr/lib/x86_64-linux-gnu/libnppif.so
+/usr/lib/x86_64-linux-gnu/libnppc.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppisu_static.a
+/usr/lib/x86_64-linux-gnu/libnppist.so
+/usr/lib/x86_64-linux-gnu/libnppim.so.11
+/usr/lib/x86_64-linux-gnu/libnppim.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppial.so
+/usr/lib/x86_64-linux-gnu/libnppist.so.11
+/usr/lib/x86_64-linux-gnu/libnppig.so.11
+/usr/lib/x86_64-linux-gnu/libnppc.so.11
+/usr/lib/x86_64-linux-gnu/libnppc.so
+/usr/lib/x86_64-linux-gnu/libnppist.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppc_static.a
+/usr/lib/x86_64-linux-gnu/libnpps.so
+/usr/lib/x86_64-linux-gnu/libnppicc.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppidei_static.a
+/usr/lib/x86_64-linux-gnu/libnppisu.so.11
+/usr/lib/x86_64-linux-gnu/libnppitc.so
+/usr/lib/x86_64-linux-gnu/libnpps.so.11
+/usr/lib/x86_64-linux-gnu/libnppisu.so
+/usr/lib/x86_64-linux-gnu/libnppial.so.11
+/usr/lib/x86_64-linux-gnu/libnppitc.so.11
+/usr/lib/x86_64-linux-gnu/libnppidei.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppidei.so.11
+/usr/lib/x86_64-linux-gnu/libnppist_static.a
+/usr/lib/x86_64-linux-gnu/libnppitc.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppif.so.11
+/usr/lib/x86_64-linux-gnu/libnppicc.so
+/usr/lib/x86_64-linux-gnu/libnppif_static.a
+/usr/lib/x86_64-linux-gnu/libnpps.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppim_static.a
+/usr/lib/x86_64-linux-gnu/libnppicc.so.11
+/usr/lib/x86_64-linux-gnu/libnppig.so
+/usr/lib/x86_64-linux-gnu/libnppicc_static.a
+/usr/lib/x86_64-linux-gnu/stubs/libnppif.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppist.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppial.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppc.so
+/usr/lib/x86_64-linux-gnu/stubs/libnpps.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppitc.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppisu.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppicc.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppig.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppim.so
+/usr/lib/x86_64-linux-gnu/stubs/libnppidei.so
+/usr/lib/x86_64-linux-gnu/libnppig_static.a
+/usr/lib/x86_64-linux-gnu/libnppim.so
+/usr/lib/x86_64-linux-gnu/libnppitc_static.a
+/usr/lib/x86_64-linux-gnu/libnpps_static.a
+/usr/lib/x86_64-linux-gnu/libnppisu.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppig.so.11.5.1.107
+/usr/lib/x86_64-linux-gnu/libnppidei.so
+find: ‘/usr/local/lib/ollama/cuda_v12’: Permission denied
+	libnpps.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnpps.so.11
+	libnpps.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnpps.so
+	libnppitc.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppitc.so.11
+	libnppitc.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppitc.so
+	libnppisu.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppisu.so.11
+	libnppisu.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppisu.so
+	libnppist.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppist.so.11
+	libnppist.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppist.so
+	libnppim.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppim.so.11
+	libnppim.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppim.so
+	libnppig.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppig.so.11
+	libnppig.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppig.so
+	libnppif.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppif.so.11
+	libnppif.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppif.so
+	libnppidei.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppidei.so.11
+	libnppidei.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppidei.so
+	libnppicc.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppicc.so.11
+	libnppicc.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppicc.so
+	libnppial.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppial.so.11
+	libnppial.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppial.so
+	libnppc.so.11 (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppc.so.11
+	libnppc.so (libc6,x86-64) => /lib/x86_64-linux-gnu/libnppc.so
+
+===== NPP packages =====
+dpkg-query: no packages found matching cuda-npp*
+libnppc11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppial11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppicc11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppidei11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppif11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppig11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppim11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppist11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppisu11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnppitc11:amd64	11.5.1.107~11.5.1-1ubuntu1
+libnpps11:amd64	11.5.1.107~11.5.1-1ubuntu1

@@ -1,0 +1,36 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate shell scripts
+        run: |
+          find . -name '*.sh' -not -path './third_party/*' -print0 \
+            | xargs -0 -r -n1 bash -n
+
+      - name: Validate Python syntax
+        run: |
+          python3 -m py_compile \
+            scripts/check_links.py \
+            benchmarks/scripts/collect_ffmpeg_api.py \
+            tests/zerocopy/run_hip_encode_compare.py
+
+      - name: Check Markdown links
+        run: python3 scripts/check_links.py
+
+      - name: Check for accidental large files
+        run: |
+          big=$(find . -type f -not -path './.git/*' -not -path './testdata/h264/*' \
+            -size +2M -print)
+          if [ -n "$big" ]; then
+            echo "$big"
+            echo "Large files must not be committed; use testdata/ generation scripts instead."
+            exit 1
+          fi

@@ -1,0 +1,4 @@
+CUDA driver API version: 13020
+CUDA runtime version: 11050
+P2P3/P3P2 roundtrip: PASS
+Reference output: "<repo>/docs/evidence/results/npp-nvidia-11.5"

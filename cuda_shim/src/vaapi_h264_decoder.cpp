@@ -1,0 +1,178 @@
+#include "vaapi_h264_decoder.h"
+#include "h264_picture_translate.h"
+
+#include <va/va_drm.h>
+#include <va/va_drmcommon.h>
+#include <drm/drm_fourcc.h>
+
+#include <algorithm>
+#include <cstdlib>
+#include <fcntl.h>
+#include <unistd.h>
+
+namespace cuvid_shim {
+
+VaapiH264Decoder::~VaapiH264Decoder() {
+    reset();
+}
+
+VASurfaceID VaapiH264Decoder::surface(std::size_t index) const {
+    return index < surfaces_.size() ? surfaces_[index] : VA_INVALID_SURFACE;
+}
+
+CUresult VaapiH264Decoder::decode(const CUVIDPICPARAMS &picture) {
+    if (!display_ || context_ == VA_INVALID_ID) return static_cast<CUresult>(3);
+    if (picture.CurrPicIdx < 0 ||
+        static_cast<std::size_t>(picture.CurrPicIdx) >= surfaces_.size()) {
+        return CUDA_ERROR_INVALID_VALUE;
+    }
+    if (picture.PicWidthInMbs * 16 != coded_width_ ||
+        picture.FrameHeightInMbs * 16 != coded_height_) {
+        return static_cast<CUresult>(801);
+    }
+
+    VaH264Picture translated;
+    CUresult result = translate_h264_picture(picture, surfaces_, &translated);
+    if (result != CUDA_SUCCESS) return result;
+
+    VABufferID buffers[4] = {VA_INVALID_ID, VA_INVALID_ID, VA_INVALID_ID, VA_INVALID_ID};
+    int buffer_count = 0;
+    bool picture_started = false;
+    VAStatus status = vaCreateBuffer(display_, context_, VAPictureParameterBufferType,
+                                     sizeof(translated.parameters), 1,
+                                     &translated.parameters, &buffers[buffer_count++]);
+    if (status == VA_STATUS_SUCCESS) {
+        status = vaCreateBuffer(display_, context_, VAIQMatrixBufferType,
+                                sizeof(translated.inverse_quantizer), 1,
+                                &translated.inverse_quantizer, &buffers[buffer_count++]);
+    }
+    if (status == VA_STATUS_SUCCESS) {
+        status = vaCreateBuffer(display_, context_, VASliceParameterBufferType,
+                                sizeof(translated.slices[0]), translated.slices.size(),
+                                translated.slices.data(), &buffers[buffer_count++]);
+    }
+    if (status == VA_STATUS_SUCCESS) {
+        status = vaCreateBuffer(display_, context_, VASliceDataBufferType,
+                                picture.nBitstreamDataLen, 1,
+                                const_cast<uint8_t *>(picture.pBitstreamData),
+                                &buffers[buffer_count++]);
+    }
+
+    if (status == VA_STATUS_SUCCESS) {
+        status = vaBeginPicture(display_, context_, surfaces_[picture.CurrPicIdx]);
+        picture_started = status == VA_STATUS_SUCCESS;
+    }
+    for (int index = 0; index < buffer_count && status == VA_STATUS_SUCCESS; ++index) {
+        status = vaRenderPicture(display_, context_, &buffers[index], 1);
+    }
+    if (picture_started) {
+        VAStatus end_status = vaEndPicture(display_, context_);
+        if (status == VA_STATUS_SUCCESS) status = end_status;
+    }
+    for (int index = 0; index < buffer_count; ++index) {
+        if (buffers[index] != VA_INVALID_ID) (void)vaDestroyBuffer(display_, buffers[index]);
+    }
+    return status == VA_STATUS_SUCCESS ? CUDA_SUCCESS : CUDA_ERROR_UNKNOWN;
+}
+
+void VaapiH264Decoder::reset() {
+    if (display_) {
+        if (context_ != VA_INVALID_ID) (void)vaDestroyContext(display_, context_);
+        if (!surfaces_.empty()) {
+            for (VASurfaceID id : surfaces_) (void)vaSyncSurface(display_, id);
+            (void)vaDestroySurfaces(display_, surfaces_.data(), surfaces_.size());
+        }
+        if (config_ != VA_INVALID_ID) (void)vaDestroyConfig(display_, config_);
+        (void)vaTerminate(display_);
+    }
+    if (drm_fd_ >= 0) close(drm_fd_);
+    drm_fd_ = -1;
+    display_ = nullptr;
+    config_ = VA_INVALID_ID;
+    context_ = VA_INVALID_ID;
+    coded_width_ = 0;
+    coded_height_ = 0;
+    surfaces_.clear();
+}
+
+CUresult VaapiH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
+    reset();
+    if (info.CodecType != cudaVideoCodec_H264 ||
+        info.ChromaFormat != cudaVideoChromaFormat_420 ||
+        info.bitDepthMinus8 != 0 ||
+        info.OutputFormat != cudaVideoSurfaceFormat_NV12 ||
+        info.DeinterlaceMode != cudaVideoDeinterlaceMode_Weave ||
+        info.ulWidth == 0 || info.ulHeight == 0 ||
+        info.ulWidth > 4096 || info.ulHeight > 4096 ||
+        info.ulNumDecodeSurfaces == 0 || info.ulNumDecodeSurfaces > 32) {
+        return static_cast<CUresult>(801);
+    }
+    if ((info.ulWidth & 1) || (info.ulHeight & 1)) return CUDA_ERROR_INVALID_VALUE;
+
+    const char *default_node = "/dev/dri/renderD128";
+    const char *node = std::getenv("CUVID_SHIM_DRM_NODE");
+    if (!node || !*node) node = default_node;
+    drm_fd_ = open(node, O_RDWR | O_CLOEXEC);
+    if (drm_fd_ < 0) return static_cast<CUresult>(100);
+
+    display_ = vaGetDisplayDRM(drm_fd_);
+    if (!display_) {
+        reset();
+        return static_cast<CUresult>(100);
+    }
+    int major = 0;
+    int minor = 0;
+    if (vaInitialize(display_, &major, &minor) != VA_STATUS_SUCCESS) {
+        reset();
+        return static_cast<CUresult>(100);
+    }
+
+    coded_width_ = static_cast<int>(info.ulWidth);
+    coded_height_ = static_cast<int>(info.ulHeight);
+    surfaces_.assign(info.ulNumDecodeSurfaces, VA_INVALID_SURFACE);
+
+    uint64_t modifiers[] = {DRM_FORMAT_MOD_LINEAR};
+    VADRMFormatModifierList modifier_list = {1, modifiers};
+    VASurfaceAttrib attributes[2];
+    attributes[0].type = VASurfaceAttribMemoryType;
+    attributes[0].flags = VA_SURFACE_ATTRIB_SETTABLE;
+    attributes[0].value.type = VAGenericValueTypeInteger;
+    attributes[0].value.value.i = VA_SURFACE_ATTRIB_MEM_TYPE_DRM_PRIME_2;
+    attributes[1].type = VASurfaceAttribDRMFormatModifiers;
+    attributes[1].flags = VA_SURFACE_ATTRIB_SETTABLE;
+    attributes[1].value.type = VAGenericValueTypePointer;
+    attributes[1].value.value.p = &modifier_list;
+
+    VAStatus status = vaCreateSurfaces(
+        display_, VA_RT_FORMAT_YUV420, coded_width_, coded_height_,
+        surfaces_.data(), surfaces_.size(), attributes, 2);
+    if (status != VA_STATUS_SUCCESS) {
+        reset();
+        return static_cast<CUresult>(801);
+    }
+
+    VAConfigAttrib attribute = {};
+    attribute.type = VAConfigAttribRTFormat;
+    status = vaGetConfigAttributes(display_, VAProfileH264High, VAEntrypointVLD,
+                                   &attribute, 1);
+    if (status != VA_STATUS_SUCCESS || attribute.value == VA_ATTRIB_NOT_SUPPORTED ||
+        !(attribute.value & VA_RT_FORMAT_YUV420)) {
+        reset();
+        return static_cast<CUresult>(801);
+    }
+    status = vaCreateConfig(display_, VAProfileH264High, VAEntrypointVLD,
+                            &attribute, 1, &config_);
+    if (status != VA_STATUS_SUCCESS) {
+        reset();
+        return static_cast<CUresult>(801);
+    }
+    status = vaCreateContext(display_, config_, coded_width_, coded_height_,
+                             VA_PROGRESSIVE, surfaces_.data(), surfaces_.size(), &context_);
+    if (status != VA_STATUS_SUCCESS) {
+        reset();
+        return static_cast<CUresult>(801);
+    }
+    return CUDA_SUCCESS;
+}
+
+} // namespace cuvid_shim

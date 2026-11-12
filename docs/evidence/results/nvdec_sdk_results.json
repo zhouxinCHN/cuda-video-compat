@@ -1,0 +1,22 @@
+{
+  "framework": "NVDEC-SDK",
+  "resolution": "1920x1080",
+  "duration_sec": 5,
+  "results": [
+    {"codec":"H264","chroma":"4:2:0","bit_depth":"8bit","status":"ok","frames":150,"errors":0,"fps":827.919979},
+    {"codec":"H264","chroma":"4:2:2","bit_depth":"8bit","status":"fail","frames":0,"errors":0,"fps":0.0},
+    {"codec":"H264","chroma":"4:4:4","bit_depth":"8bit","status":"fail","frames":0,"errors":0,"fps":0.0},
+    {"codec":"H264","chroma":"4:2:0","bit_depth":"10bit","status":"fail","frames":0,"errors":0,"fps":0.0},
+    {"codec":"HEVC","chroma":"4:2:0","bit_depth":"8bit","status":"ok","frames":150,"errors":0,"fps":1552.569057},
+    {"codec":"HEVC","chroma":"4:2:2","bit_depth":"8bit","status":"fail","frames":0,"errors":0,"fps":0.0},
+    {"codec":"HEVC","chroma":"4:4:4","bit_depth":"8bit","status":"ok","frames":150,"errors":0,"fps":982.975506},
+    {"codec":"HEVC","chroma":"4:2:0","bit_depth":"10bit","status":"ok","frames":150,"errors":0,"fps":1576.031263},
+    {"codec":"HEVC","chroma":"4:2:0","bit_depth":"12bit","status":"ok","frames":150,"errors":0,"fps":1536.242495},
+    {"codec":"AV1","chroma":"4:2:0","bit_depth":"8bit","status":"ok","frames":150,"errors":0,"fps":1444.81542},
+    {"codec":"AV1","chroma":"4:2:0","bit_depth":"10bit","status":"ok","frames":150,"errors":0,"fps":1458.902711},
+    {"codec":"VP9","chroma":"4:2:0","bit_depth":"8bit","status":"ok","frames":1,"errors":0,"fps":22.01783},
+    {"codec":"VP9","chroma":"4:2:0","bit_depth":"10bit","status":"ok","frames":1,"errors":0,"fps":21.86902},
+    {"codec":"MPEG2","chroma":"4:2:0","bit_depth":"8bit","status":"ok","frames":150,"errors":0,"fps":816.768212},
+    {"codec":"MPEG2","chroma":"4:2:2","bit_depth":"8bit","status":"fail","frames":0,"errors":0,"fps":0.0}
+  ]
+}

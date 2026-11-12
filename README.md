@@ -1,0 +1,160 @@
+# CUDA 解码兼容层（VAAPI / Vulkan Video）
+
+在非 NVIDIA GPU 上，为**重新编译**的 CUDA 视频应用提供 NVDEC / CUVID / NPP 兼容层：
+用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、
+`libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
+
+> 当前定位：**架构与底层可行性验证阶段**，不是生产可用版本。请先阅读
+> [验证边界](#验证边界)，不要把“底层通路验证通过”当作“业务链路验收通过”。
+
+## 仓库结构
+
+```text
+.
+├── README.md                  # 本文件
+├── LICENSE-TBD.md             # 许可证待定，暂未授予开源许可
+├── CONTRIBUTING.md            # 贡献指南
+├── SECURITY.md                # 安全问题报告
+├── CODE_OF_CONDUCT.md         # 行为准则
+├── THIRD_PARTY.md             # 第三方依赖与许可证
+├── docs/
+│   ├── README.md              # 文档索引
+│   ├── architecture/          # 架构、方案、API 映射、模型说明
+│   ├── verification/          # 实验设计、Quick Verify、AMD 交接
+│   └── evidence/              # 历史结果与日志（已脱敏）
+├── cuda_shim/                 # 兼容层本体：libcuda + libnvcuvid
+│   ├── include/               # CUDA 类型映射
+│   ├── src/                   # VAAPI / Vulkan Video 后端、DMA-BUF 映射
+│   ├── tests/                 # 组件内测试（符号、会话、parser、kernel 读取）
+│   ├── Makefile
+│   └── CMakeLists.txt
+├── tests/
+│   ├── parser/                # FFmpeg parser 复用、NPP 参考输出
+│   ├── zerocopy/              # VAAPI / Vulkan Video → HIP 端到端像素校验
+│   ├── sync/                  # 同步协议与异步 fence 现状探测
+│   ├── vulkan-video/          # Vulkan Video 能力探测（basic / full）
+│   └── quick-verify/          # mapped pointer kernel 读取、FFmpeg 双路径快速验证
+├── benchmarks/                # NVDEC / VAAPI / NPP / VPP 对比测试
+├── testdata/h264/             # 小体积 H.264 测试码流
+├── scripts/                   # 仓库维护脚本（链接检查等）
+└── .github/workflows/         # CI（Shell/Python/文档链接检查）
+```
+
+## 快速开始
+
+### 1. 依赖
+
+- Linux + ROCm 7.x（HIP runtime 与头文件）
+- `libva-dev`、`libva-drm`、`libdrm-dev`
+- Vulkan loader；Vulkan Video 后端还需要 Mesa/RADV 与 `vk_video/*` 头
+- FFmpeg **7.1** 源码的构建产物：`libavutil.so` + 9 个解析对象
+  （`h2645_parse/h264_ps/h2645_vui/h2645data/h264data/h264_parse/golomb/mathtables/refstruct`）
+- `nv-codec-headers`（nv-codec-headers 的 CUDA/CUVID 头）
+- FFmpeg 7.1 可执行文件（仅跑宿主路径验证时需要 `h264_cuvid` / `h264_nvdec`）
+
+FFmpeg、Mesa、nv-codec-headers 都**不随仓库分发**，按外部依赖处理；
+详见 [THIRD_PARTY.md](THIRD_PARTY.md) 和 [docs/verification/handoff-amd.md](docs/verification/handoff-amd.md)。
+
+### 2. 构建兼容层
+
+```bash
+cd cuda_shim
+make -j"$(nproc)" libcuda.so.1 libnvcuvid.so.1 \
+  ROCM_DIR=/opt/rocm \
+  FFMPEG_DIR=/path/to/ffmpeg-7.1 \
+  NVCODEC_DIR=/path/to/nv-codec-headers/include \
+  MESA_DIR=/path/to/mesa \
+  VULKAN_LIB=-l:libvulkan.so.1
+```
+
+`VULKAN_LIB=-l:libvulkan.so.1` 适用于只有运行时 `libvulkan.so.1`、没有 `libvulkan.so`
+开发软链的机器；装了 `libvulkan-dev` 时可以省略。
+
+### 3. 跑快速验证
+
+```bash
+# mapped dev_ptr 是否真能被 HIP kernel 寻址 + event 后再 unmap
+make -C cuda_shim verify_kernel_read \
+  ROCM_DIR=/opt/rocm \
+  HIPCC_EXTRA="--offload-arch=gfx1100"
+
+cd tests/quick-verify
+BACKENDS=vaapi ./run_kernel_read.sh
+BACKENDS=vaapi ./run_ffmpeg_compare.sh
+```
+
+预期结果与排障见 [docs/verification/quick-verify.md](docs/verification/quick-verify.md)。
+
+### 4. 跑端到端实验
+
+```bash
+# FFmpeg parser 复用
+cd tests/parser
+make -f verify_parser_reuse.make run
+
+# VAAPI 解码 → HIP 读（I/P/B 30 帧逐字节）
+cd tests/zerocopy
+make -f verify_decode_to_hip.make run-b
+
+# 同步协议 S1–S8
+cd tests/sync
+make run
+
+# Vulkan Video 能力探测
+cd tests/vulkan-video/full
+make && ./verify_vulkan_video_full
+```
+
+## 两条后端路径
+
+| 维度 | VAAPI | Vulkan Video |
+|---|---|---|
+| 解码输出 | 显式 `DRM_FORMAT_MOD_LINEAR` | 规范要求 `VK_IMAGE_TILING_OPTIMAL` |
+| 显存共享 | surface → dma-buf → HIP 导入，真零拷贝 | image → GPU `vkCmdCopyImageToBuffer` → 线性 buffer → HIP 导入 |
+| 额外拷贝 | `h264_nvdec` 0 次；`h264_cuvid` 有 FFmpeg 自身的 D2D 拷贝 | 每帧 1 次 GPU 内拷贝 |
+| 同步基线 | `vaSyncSurface` + HIP event | Vulkan semaphore/fence + HIP event |
+| 异步跨栈 fence | 未落地 | 未落地；需 sync_file/syncobj 与 ROCr 协同 |
+
+## 验证边界
+
+已记录的结果（详见 [docs/README.md](docs/README.md)）：
+
+- `libcuda` 功能子集 **47 PASS / 0 FAIL**（历史记录）。
+- VAAPI 真实解码 → HIP 读：I / I-P / I-P-B 各 30 帧逐字节一致。
+- 同步协议 S1–S8 通过；S8 1000 帧文件句柄稳定。
+- Vulkan Video 解码 → 拷贝 → 导出 → HIP 读：三类码流各 30 帧逐字节一致，无 fd/显存泄漏。
+- Vulkan 后端接入 FFmpeg `h264_cuvid` 30 帧 0 decode error。
+
+仍**未**完成的验收项：
+
+- VAAPI 后端的 CUVID shim 真实 decode/map 像素链路；
+- `h264_nvdec` 零拷贝在两条后端上的正式验收；
+- 多流、seek/flush、动态分辨率、P010/奇数分辨率；
+- 异步跨栈 fence；
+- 目标平台、1/8 路 30 分钟稳定性、真实业务性能。
+
+## 文档
+
+- [文档索引](docs/README.md)
+- [目录结构与迁移对照](docs/STRUCTURE.md)
+- [CUDA 解码链路内存与同步模型](docs/architecture/decode-memory-sync-model.md)
+- [VAAPI / Vulkan Video 方案对比](docs/architecture/cuda-compat-plan-integrated.md)
+- [Quick Verify 运行说明](docs/verification/quick-verify.md)
+- [AMD 验证机交接](docs/verification/handoff-amd.md)
+
+## 商标与关联关系
+
+本项目是独立的兼容层研究项目，**与 NVIDIA 无隶属、赞助或背书关系**。CUDA、NVIDIA、NVDEC、
+NPP、NVENC 等名称仅用于描述 API 兼容性；仓库不包含 NVIDIA 专有源码、二进制、SDK 头文件或驱动文件。
+详见 [NOTICE.md](NOTICE.md)。
+
+## 许可证
+
+许可证尚未确定：见 [LICENSE-TBD.md](LICENSE-TBD.md)。在许可证确定前，仓库不授予开源许可；
+第三方依赖的许可证见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+
+## 贡献与安全
+
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [SECURITY.md](SECURITY.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)

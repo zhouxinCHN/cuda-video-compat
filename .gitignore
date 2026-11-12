@@ -1,0 +1,64 @@
+# --- local tooling ---
+.claude/
+.vscode/
+.idea/
+.DS_Store
+
+# --- build outputs ---
+build/
+cmake-build-*/
+*.o
+*.a
+*.so
+*.so.*
+__pycache__/
+*.pyc
+
+# cuda_shim binaries / shared objects (rebuild from source)
+cuda_shim/libcuda.so*
+cuda_shim/libnvcuvid.so*
+cuda_shim/verify_symbols
+cuda_shim/verify_cuvid_symbols
+cuda_shim/verify_cuvid_session
+cuda_shim/verify_cuvid_parser
+cuda_shim/verify_kernel_read
+cuda_shim/test_func
+cuda_shim/test_func_full
+cuda_shim/parser_reuse
+
+# test binaries (built in-place by Makefiles)
+tests/parser/verify_parser_reuse
+tests/zerocopy/verify_zerocopy
+tests/zerocopy/retry_exp3
+tests/zerocopy/retry_exp3_v2
+tests/zerocopy/hip_read_surface
+tests/zerocopy/verify_modifier_linear
+tests/zerocopy/verify_p010_linear
+tests/zerocopy/verify_portability
+tests/zerocopy/verify_decode_to_hip
+tests/zerocopy/verify_hip_to_encode
+tests/zerocopy/verify_vk_decode_to_hip
+tests/sync/verify_sync
+tests/sync/verify_semaphore_async
+tests/vulkan-video/basic/verify_vulkan_video
+tests/vulkan-video/full/verify_vulkan_video_full
+
+# generated reference media (recreate with the Makefiles / testdata README)
+tests/**/ref_*.yuv
+testdata/**/*.yuv
+testdata/**/*.nv12
+testdata/**/*.gray
+
+# external source/build trees, never vendor them
+third_party/
+test/ffmpeg-lgpl-src/
+zerocopy_test_back/
+
+# logs: keep only curated evidence
+*.log
+!docs/evidence/**/*.log
+
+# temporary
+*.tmp
+*.swp
+*~

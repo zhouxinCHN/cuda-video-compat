@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.sh       text eol=lf
+*.py       text eol=lf
+*.md       text eol=lf
+Makefile   text eol=lf
+*.make     text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf
+
+*.h264     binary
+*.yuv      binary
+*.nv12     binary
+*.gray     binary
+*.png      binary
+*.jpg      binary
