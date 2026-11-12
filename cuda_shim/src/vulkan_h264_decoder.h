@@ -78,6 +78,13 @@ private:
     VkSemaphore copy_done_ = VK_NULL_HANDLE;
     VkFence copy_fence_ = VK_NULL_HANDLE;
 
+    // 解码结果状态 query（VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR，与 FFmpeg
+    // ff_vk_decode_frame 同一套做法）。没有它，vkCmdDecodeVideoKHR 是 void，
+    // 失败只能等内核 ring timeout 变成 context lost，日志里连"哪一帧出错"都
+    // 判断不了。队列族不支持 queryResultStatus 时保持 VK_NULL_HANDLE（跳过）。
+    VkQueryPool decode_query_ = VK_NULL_HANDLE;
+    bool query_supported_ = false;
+
     // Output images (indexed by CUVID CurrPicIdx) + DPB images (indexed by slot).
     struct ImageRes {
         VkImage image = VK_NULL_HANDLE;
@@ -106,6 +113,14 @@ private:
     VkDeviceMemory bitstream_mem_ = VK_NULL_HANDLE;
     VkDeviceSize bitstream_buf_size_ = 0;
 
+    // Memory bound to the video session (VCN session/decoder context buffers).
+    // MUST stay allocated until vkDestroyVideoSessionKHR(): radv keeps raw
+    // radv_device_memory* pointers to it (radv_video.c:copy_bind) and programs
+    // RDECODE_CMD_CONTEXT_BUFFER with its address on every decode. Freeing it
+    // early = the firmware's own context buffer gets recycled by a later
+    // allocation → VCN ring timeout.
+    std::vector<VkDeviceMemory> session_mems_;
+
     // Codec/session state.
     int coded_width_ = 0;
     int coded_height_ = 0;
@@ -118,6 +133,8 @@ private:
     uint8_t sps_id_ = 0;
     uint8_t pps_id_ = 0;
     uint32_t decode_order_ = 0;   // decode-order cursor (output image reuse + first-submit WAR)
+    bool session_reset_done_ = false;   // one-time VK_VIDEO_CODING_CONTROL_RESET after session create
+    bool device_lost_ = false;          // set after a fence timeout / DEVICE_LOST; fail fast afterwards
 
     // POC state carried across decode() calls. Reset on IDR.
     H264POCContext poc_ctx_ = {};

@@ -10,6 +10,8 @@
 #include "backend_dispatch.h"
 #include "cuvid_parser.h"
 
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <unordered_map>
@@ -191,6 +193,9 @@ CUresult CUDAAPI cuvidMapVideoFrame64(CUvideodecoder handle, int picture_index,
 
     const unsigned long long pointer = mapping.device_pointer();
     const unsigned int output_pitch = mapping.pitch();
+    if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
+        std::fprintf(stderr, "SHIM MAP idx=%d ptr=0x%llx\n", picture_index, pointer);
+    }
     state->mappings.emplace(pointer, std::move(mapping));
     state->mapped_indices.emplace(picture_index, pointer);
     state->statuses[picture_index].decodeStatus = cuvidDecodeStatus_Success;
@@ -207,6 +212,9 @@ CUresult CUDAAPI cuvidUnmapVideoFrame64(CUvideodecoder handle, unsigned long lon
     if (mapping == state->mappings.end()) return CUDA_ERROR_INVALID_VALUE;
     for (auto it = state->mapped_indices.begin(); it != state->mapped_indices.end(); ++it) {
         if (it->second == dev_ptr) {
+            if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
+                std::fprintf(stderr, "SHIM UNMAP idx=%d\n", it->first);
+            }
             state->mapped_indices.erase(it);
             break;
         }

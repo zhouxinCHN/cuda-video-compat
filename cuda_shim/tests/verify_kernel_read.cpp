@@ -265,6 +265,21 @@ int CUDAAPI cb_display(void *, CUVIDPARSERDISPINFO *disp) {
     unsigned long long cpu_sums[2] = {};
     if (copy_ok) checksum_host(host.data(), static_cast<int>(pitch), g.width, g.height, cpu_sums);
 
+    // 可选：把每帧按显示顺序 dump 成 NV12（pitch==width 时就是标准 yuv420p），
+    // 用来和 ffmpeg 软解结果做逐帧逐平面对比。CUVID_DUMP_NV12_DIR=<dir>
+    if (copy_ok) {
+        const char *dump_dir = std::getenv("CUVID_DUMP_NV12_DIR");
+        if (dump_dir && *dump_dir) {
+            const size_t frame_bytes = static_cast<size_t>(pitch) * (g.height + g.height / 2);
+            char path[1024];
+            std::snprintf(path, sizeof(path), "%s/dec_%04d_%dx%d_p%u.nv12", dump_dir, g.displays,
+                          g.width, g.height, pitch);
+            std::ofstream out(path, std::ios::binary);
+            if (out) out.write(reinterpret_cast<const char *>(host.data()),
+                               static_cast<std::streamsize>(frame_bytes));
+        }
+    }
+
     if (!copy_ok || gpu_sums[0] == 0 || gpu_sums[1] == 0 ||
         gpu_sums[0] != cpu_sums[0] || gpu_sums[1] != cpu_sums[1]) {
         std::fprintf(stderr,

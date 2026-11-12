@@ -49,6 +49,7 @@ private:
     struct PendingPicture {
         int picture_index = -1;
         int64_t timestamp = 0;
+        int poc = 0;
     };
     std::vector<PendingPicture> display_queue_;
 
@@ -79,13 +80,18 @@ private:
     CUresult parse_packet_nal(int64_t timestamp);
     CUresult send_sequence();
     CUresult parse_slice_header(const uint8_t *nal_data, std::size_t nal_size,
-                                int *frame_num, int *poc, bool *is_reference);
+                                bool is_idr, int *frame_num, int *poc,
+                                bool *is_reference);
     CUresult send_picture(const uint8_t *nal_data, std::size_t nal_size,
                           int64_t timestamp, int frame_num, int poc,
                           bool is_reference, bool is_idr);
+    // 选出本次解码用的输出 surface 下标。见 cuvid_parser.cpp 里的注释：
+    // VAAPI/radeonsi 后端不能同时拿 32 个不同的 surface 当解码目标。
+    unsigned int pick_decode_surface();
+    bool surface_in_use(unsigned int index) const;
     void update_dpb(int picture_index, int frame_num, int poc, bool is_reference, int64_t timestamp);
     void build_reference_lists(const CUVIDPICPARAMS &pic, std::vector<int> &list0, std::vector<int> &list1);
-    void pump_display_queue();
+    void pump_display_queue(int newest_poc, bool flush_all = false);
 };
 
 } // namespace cuvid_shim

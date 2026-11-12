@@ -6,6 +6,7 @@
 #include <drm/drm_fourcc.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstdlib>
 #include <fcntl.h>
 #include <unistd.h>
@@ -35,6 +36,15 @@ CUresult VaapiH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     CUresult result = translate_h264_picture(picture, surfaces_, &translated);
     if (result != CUDA_SUCCESS) return result;
 
+    // 临时调试：把目标 surface 固定到指定下标，验证"下标越界/驱动限制"假设
+    int target = picture.CurrPicIdx;
+    if (const char *force = std::getenv("CUVID_SHIM_FORCE_SURFACE")) target = std::atoi(force);
+    if (const char *mod = std::getenv("CUVID_SHIM_SURFACE_MOD")) {
+        const int m = std::atoi(mod);
+        if (m > 0) target = picture.CurrPicIdx % m;
+    }
+    if (target < 0 || static_cast<std::size_t>(target) >= surfaces_.size()) target = picture.CurrPicIdx;
+
     VABufferID buffers[4] = {VA_INVALID_ID, VA_INVALID_ID, VA_INVALID_ID, VA_INVALID_ID};
     int buffer_count = 0;
     bool picture_started = false;
@@ -59,7 +69,7 @@ CUresult VaapiH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     }
 
     if (status == VA_STATUS_SUCCESS) {
-        status = vaBeginPicture(display_, context_, surfaces_[picture.CurrPicIdx]);
+        status = vaBeginPicture(display_, context_, surfaces_[target]);
         picture_started = status == VA_STATUS_SUCCESS;
     }
     for (int index = 0; index < buffer_count && status == VA_STATUS_SUCCESS; ++index) {
@@ -71,6 +81,41 @@ CUresult VaapiH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     }
     for (int index = 0; index < buffer_count; ++index) {
         if (buffers[index] != VA_INVALID_ID) (void)vaDestroyBuffer(display_, buffers[index]);
+    }
+
+    if (status == VA_STATUS_SUCCESS && std::getenv("CUVID_SHIM_DEBUG_VASUM")) {
+        // 绕过 HIP 导入，直接读 VA 面，判断是"解码没写"还是"导入读错内存"。
+        if (vaSyncSurface(display_, surfaces_[target]) == VA_STATUS_SUCCESS) {
+            VAImage image;
+            if (vaDeriveImage(display_, surfaces_[target], &image) == VA_STATUS_SUCCESS) {
+                void *mem = nullptr;
+                if (vaMapBuffer(display_, image.buf, &mem) == VA_STATUS_SUCCESS) {
+                    const auto *base = static_cast<const uint8_t *>(mem);
+                    unsigned long long sum = 0;
+                    for (int row = 0; row < coded_height_; ++row) {
+                        const auto *p = base + static_cast<std::size_t>(row) * image.pitches[0];
+                        for (int x = 0; x < coded_width_; ++x) sum += p[x];
+                    }
+                    std::fprintf(stderr, "DBG va surface idx=%d -> target=%d %dx%d pitch=%u Ysum=%llu\n",
+                                 picture.CurrPicIdx, target, coded_width_, coded_height_,
+                                 image.pitches[0], sum);
+                    if (const char *path = std::getenv("CUVID_SHIM_DUMP_VASUM")) {
+                        static int dump_count = 0;
+                        char name[512];
+                        std::snprintf(name, sizeof(name), "%s/cnt%03d_idx%d.yuv", path,
+                                      dump_count++, target);
+                        if (FILE *f = std::fopen(name, "wb")) {
+                            for (int row = 0; row < coded_height_; ++row)
+                                std::fwrite(base + static_cast<std::size_t>(row) * image.pitches[0],
+                                            1, static_cast<std::size_t>(coded_width_), f);
+                            std::fclose(f);
+                        }
+                    }
+                    (void)vaUnmapBuffer(display_, image.buf);
+                }
+                (void)vaDestroyImage(display_, image.image_id);
+            }
+        }
     }
     return status == VA_STATUS_SUCCESS ? CUDA_SUCCESS : CUDA_ERROR_UNKNOWN;
 }
@@ -143,12 +188,22 @@ CUresult VaapiH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
     attributes[1].value.type = VAGenericValueTypePointer;
     attributes[1].value.value.p = &modifier_list;
 
+    // 调试：CUVID_SHIM_PLAIN_SURFACES 时建普通 VA 面（不带 DRM_PRIME_2/线性），
+    // 用来区分"解码没写"是参数问题还是导出/修饰符问题。
+    const bool plain = std::getenv("CUVID_SHIM_PLAIN_SURFACES") != nullptr;
     VAStatus status = vaCreateSurfaces(
         display_, VA_RT_FORMAT_YUV420, coded_width_, coded_height_,
-        surfaces_.data(), surfaces_.size(), attributes, 2);
+        surfaces_.data(), surfaces_.size(), plain ? nullptr : attributes, plain ? 0 : 2);
     if (status != VA_STATUS_SUCCESS) {
         reset();
         return static_cast<CUresult>(801);
+    }
+
+    if (std::getenv("CUVID_SHIM_DEBUG_VASUM")) {
+        std::fprintf(stderr, "DBG va surfaces:");
+        for (std::size_t i = 0; i < surfaces_.size(); ++i)
+            std::fprintf(stderr, " %zu:%u", i, surfaces_[i]);
+        std::fprintf(stderr, "\n");
     }
 
     VAConfigAttrib attribute = {};
