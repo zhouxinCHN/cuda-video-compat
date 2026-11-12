@@ -8,16 +8,14 @@
 
 ## 架构与方案
 
-### 总体方案（本轮冻结，暂未整合）
+### 总体方案（按职责分工）
 
-以下四份是不同阶段生成的总体方案，内容互有重叠。**当前只作为历史方案保留，尚未合并、尚未改中文名**；其中的过期结论以本索引其他文档和 P0 结果为准。
-
-| 文档 | 内容 |
+| 文档 | 唯一职责 |
 |---|---|
-| [CUDA 兼容层总体方案（总纲）](architecture/cuda-compat-overview.md) | 双轨（HIPIFY + shim）、组件边界、总体路线 |
-| [方案整合版](architecture/cuda-compat-plan-integrated.md) | 完整技术方案、数据通路、同步、Vulkan Video、风险与遗留项 |
-| [方案决策实施版](architecture/cuda-compat-plan-decisions.md) | 三种落地路线、阶段计划、验收口径、未完成工作 |
-| [方案优化版](architecture/cuda-compat-plan-optimized.md) | 成本/范围优化后的方案版本 |
+| [CUDA 兼容层总体方案（总纲）](architecture/CUDA兼容层总体方案.md) | 双轨架构、组件边界、关键决策、路线图与文档导航 |
+| [方案整合版](architecture/CUDA兼容层方案_整合版.md) | 技术事实、实验证据、数据通路、同步、ABI、遗留项与版本历史 |
+| [方案决策实施版](architecture/CUDA兼容层方案_决策实施版.md) | 路线选型、成本/周期、人力、法务、验收门禁与长期 SDK 规划 |
+| [方案优化版](architecture/CUDA兼容层方案_优化版.md) | 管理层速读：一页纸结论、当前状态、剩余缺口与下一步 |
 
 ### 专题文档（当前权威）
 
@@ -45,6 +43,6 @@
 ## 阅读建议
 
 1. 先看[内存与同步模型](architecture/内存与同步模型.md)和 [CUVID 到 VAAPI 映射表](architecture/CUVID到VAAPI映射表.md)，建立数据通路与 API 边界。
-2. 需要判断当前状态时看 [P0 闭环验证结果](evidence/P0闭环验证结果_2026-11-12.md)；不要引用总体方案里的旧状态。
+2. 需要判断当前状态时看 [P0 闭环验证结果](evidence/P0闭环验证结果_2026-11-12.md)；总体方案、整合版、决策版分别负责架构、证据和决策，不再各自维护状态表。
 3. 需要动手时看[验证手册](verification/验证手册.md)。
 4. 需要扩展 Vulkan 后端时看 [Vulkan 后端实现](architecture/Vulkan后端实现.md) 与 [Vulkan Video 方案评估](architecture/Vulkan_Video方案评估.md)。

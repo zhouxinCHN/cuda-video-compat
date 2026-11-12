@@ -4,7 +4,7 @@
 > 文档日期：2026-11-12
 > 目标：源码级重编译后能跑，不要求严格二进制兼容。
 > 基线：P0 验证机为 RX 7900 XTX / Mesa 25.2.8 / libva 2.20.0（VA-API 1.20）/ 自编译 FFmpeg 7.1；nv-codec-headers 为 `n12.1.14.1-1-g610325d`。历史格式对比机为 RX 9070 / Mesa 26 / FFmpeg 6.1，两者不要混用。
-> 上位文档：[CUDA 兼容层总体方案](cuda-compat-overview.md)（HIPIFY + shim 双轨架构，本文属“轨 2：shim 库”）。
+> 上位文档：[CUDA 兼容层总体方案](CUDA兼容层总体方案.md)（HIPIFY + shim 双轨架构，本文属“轨 2：shim 库”）。
 > 职责：本文是**符号范围契约**（哪些 API 在 P0 内、哪些明确不承诺）与**字段级翻译手册**的唯一权威文档。内存/同步语义见[内存与同步模型](内存与同步模型.md)，格式能力见[NVDEC 与 VAAPI 解码对比](NVDEC与VAAPI解码对比.md)。
 
 ---

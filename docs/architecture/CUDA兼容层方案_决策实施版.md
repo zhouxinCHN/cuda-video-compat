@@ -2,10 +2,10 @@
 
 > 本文先比较**二进制直接兼容**与**源码级重编译兼容**，说明当前选择源码级重编译兼容的原因；随后比较 **VAAPI、Vulkan Video、Mesa 新增 frontends 适配**三种实现方案。自有 SDK 作为长期建设方向，在文末单独说明。
 >
-> 版本：v3.0  
-> 文档日期：2026-11-10  
-> 技术事实截止：2026-11-07  
-> 原始文档：《docs/architecture/cuda-compat-plan-optimized.md》《docs/architecture/cuda-compat-plan-integrated.md》，均保持不变。  
+> 版本：v4.0
+> 文档日期：2026-11-12
+> 技术事实截止：2026-11-12
+> 职责：本文是**决策与实施**文档，负责兼容方式选择、三种技术路线对比、成本/周期/人力、法务、验收门禁和长期 SDK 规划。技术证据与实验细节以[方案整合版](CUDA兼容层方案_整合版.md)为准，本文不重复实验内部数据。
 > 读者：管理层、产品负责人、法务、架构与实施团队。
 
 ---
@@ -207,8 +207,7 @@
 | 主机同步 | 8 项顺序与资源测试通过，包含 1000 帧运行和文件句柄检查 | 可先由 CPU 保证解码、计算和回收顺序 |
 | libcuda 子集 | 82 个符号形态、47 项功能子集测试有通过记录 | 可作为继续开发基础，不等于完整 CUDA 兼容 |
 | NPP 参考 | RTX 4060 + NPP 11.5.1.107 的 3 个函数参考输出已固化 | 后续实现有明确数值对照 |
-| Vulkan Video | 底层“解码 → 显卡内转换 → HIP 读取”三类码流各 30 帧逐字节一致；2026-11-07 报告记录其已接入转接库并跑通 `h264_cuvid` 30 帧 | Vulkan 具备实现基础，但尚不是完整业务验收 |
-| **P0 双后端闭环（2026-11-12）** | **四路码流：VAAPI 82/82、Vulkan 82/82 逐字节一致（合计 164 帧）；`verify_kernel_read` errors=0；`make check` / `check_func` / parser / session 全 PASS** | **两条后端的数据通路和 mapped pointer kernel 读取已闭环；FFmpeg 宿主双路径和业务链路尚未验收** |
+| **P0 双后端闭环（2026-11-12）** | **四路码流：VAAPI 82/82、Vulkan 82/82 逐字节一致（合计 164 帧）；`verify_kernel_read` errors=0；`make check` / `check_func` / parser / session 全 PASS；Vulkan B 帧挂死已修复** | **两条后端的数据通路和 mapped pointer kernel 读取已闭环；FFmpeg 宿主双路径、NPP 和业务链路尚未验收** |
 
 ### 3.4 尚未完成的工作
 
@@ -365,10 +364,10 @@ CUDA 风格驱动入口 → Mesa 内部视频实现 → 硬件
 | NVIDIA 相关法律暴露 | NPP 头文件、兼容声明等 | 与 VAAPI 基本相同 | 与 VAAPI 基本相同 |
 | 开源许可责任 | FFmpeg LGPL、第三方声明 | 与 VAAPI 相近，另有 Vulkan 组件 | Mesa、FFmpeg 及其他组件 |
 | 粗估剩余周期 | **8～10 周** | **10～12 周** | **6～12 个月** |
-| 核心人员估算 | 3 人 + 0.5～1 测试 | 3～4 人 + 0.5～1 测试 | 4～6 人 + 驱动测试 |
+| 核心人员估算 | 4.0～4.5 FTE（核心 3 人 + 测试/构建 1.0～1.5） | 3.5～5 FTE（3～4 人 + 0.5～1 测试） | 4～6 人 + 驱动测试 |
 | 战略价值 | 快速形成 Linux 兼容能力 | 形成开放、跨平台后端能力 | 形成更深的平台驱动能力 |
 
-> 表中周期为一期（功能兼容验收）口径；二期客户应用、自研平台回归和生产发布另计 4～6 周，详见第七章。
+> 表中周期为一期（功能兼容验收）口径：VAAPI 一期 8～10 周，二期 4～6 周，合计 12～16 周（约 3～4 个月）。二期客户应用、自研平台回归和生产发布另计，详见第七章。
 
 ### 5.2 不能只看研发周期
 
@@ -746,11 +745,14 @@ FFmpeg 使用 3 个 NPP 函数，不代表其他客户也只使用这 3 个。�
 
 ### 11.3 深入阅读
 
-- [docs/architecture/cuda-compat-plan-optimized.md](cuda-compat-plan-optimized.md)：原决策与实施稿。
-- [docs/architecture/cuda-compat-plan-integrated.md](cuda-compat-plan-integrated.md)：原完整技术、实验和历史记录。
+- [docs/architecture/CUDA兼容层方案_优化版.md](CUDA兼容层方案_优化版.md)：管理层速读版。
+- [docs/architecture/CUDA兼容层方案_整合版.md](CUDA兼容层方案_整合版.md)：技术事实、实验证据和历史记录。
 - [docs/architecture/NVDEC与VAAPI解码对比.md](NVDEC与VAAPI解码对比.md)：历史格式能力对比。
 - [docs/architecture/CUVID到VAAPI映射表.md](CUVID到VAAPI映射表.md)：接口映射与解析实现参考。
 - [docs/architecture/NPP兼容方案与VPE对比.md](NPP兼容方案与VPE对比.md)：NPP 兼容策略。
 - [docs/architecture/HIPIFY调研.md](HIPIFY调研.md)：客户自有计算代码的翻译工具。
-- [docs/architecture/内存与同步模型.md](../architecture/内存与同步模型.md)：显存共享实验设计。
-- [docs/architecture/Vulkan_Video方案评估.md](Vulkan_Video方案评估.md)：Vulkan Video 后端评估。
+- [docs/architecture/内存与同步模型.md](../architecture/内存与同步模型.md)：内存/同步契约与零拷贝结论。
+- [docs/architecture/Vulkan_Video方案评估.md](Vulkan_Video方案评估.md)：Vulkan Video 能力评估。
+- [docs/architecture/Vulkan后端实现.md](Vulkan后端实现.md)：Vulkan 后端实现与验证。
+- [docs/verification/验证手册.md](../verification/验证手册.md)：环境、构建、实验与判据。
+- [docs/evidence/P0闭环验证结果_2026-11-12.md](../evidence/P0闭环验证结果_2026-11-12.md)：P0 结果与证据边界。
