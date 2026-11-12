@@ -1,6 +1,10 @@
 # Vulkan Video 后端（CUVID shim 基础架构）
 
-> 状态：**代码基础架构完成，未编译未跑**（待 AMD 验证机）。
+> 状态：**已在 AMD 验证机跑通**（RX 7900 XTX / RADV，VCN < 5），四路 P/B 码流解码结果
+> 逐帧逐平面位精确。B 帧挂死（VCN ring timeout）的根因与修复见 §8，调试过程见
+> [B 帧挂死调试留档](../verification/vulkan-bframe-hang-debug-log.md)。仍需 `RADV_PERFTEST=video_decode`。
+>
+> 下文 §1–§7 是交付时的架构说明（保留原貌）；§8 是上机验证后的结论与修复清单。
 > 目标：在 CUVID shim（`cuda_shim/`）里为 `libnvcuvid.so.1` 增加一个 **Vulkan Video 解码后端**，
 > 作为 VAAPI 主线的 **Tier-2 备选**，并让 FFmpeg 宿主（`h264_cuvid` / `h264_nvdec`）**源码不改、不重编**
 > 就能通过环境变量切到这条后端。
@@ -51,7 +55,7 @@ SPS/PPS **在创建 session / session parameters 时一次性给出**，但 CUVI
 **解法**：`VkSequenceCache`（进程级单槽缓存）。`CuvidParser` 看到 SPS/PPS 时 `store()`；
 `VulkanH264Decoder` 在 `ensure_session()` / `decode()` 里 `fetch()`。
 
-- **代价**：`cuvid_parser.cpp` 需要加两行 `store()`（见 §5 待办）。因为 parser 与 decoder 之间
+- **代价**：`cuvid_parser.cpp` 需要加两段 `store()`（见 §5）。因为 parser 与 decoder 之间
   唯一通道是宿主的 `pfnSequenceCallback`，无直接句柄，进程级缓存是最小侵入的接缝。
 - **局限**：单槽只支撑单流单解码器（FFmpeg 单实例场景够用）。多流需按 `CUvideodecoder` 键控，
   留到 P1-2。
@@ -104,11 +108,12 @@ SPS/PPS **在创建 session / session parameters 时一次性给出**，但 CUVI
 
 | # | 项 | 说明 |
 |---|---|---|
-| 1 | **编译/运行验证** | 本机（NVIDIA RTX 4060）无 AMD GPU + 无 libvulkan video 命令，无法链接运行；已做 `-fsyntax-only` 语法自检（0 error） |
+| 1 | **编译/运行验证** | ~~本机（NVIDIA RTX 4060）无 AMD GPU，无法链接运行~~ → **已在 AMD 验证机完成**，见 §8 |
 | 2 | `cuvidReconfigureDecoder` | 当前 stub（与 VAAPI 后端一致），Vulkan 需销毁重建 session，未接 |
 | 3 | 异步同步（sync_file 桥接） | 首期主机同步够用，异步桥接需 ROCm 协同（TODO §4.2），不阻塞 |
-| 4 | 多流 / seek / flush | 单流单序列已覆盖；flush（`payload_size==0`）当前走 parser 的 `pump_display_queue`，VK 后端不感知，未专项测 |
+| 4 | 多流 / seek / flush | 单流单序列已覆盖；flush（`payload_size==0`）走 parser 的 `pump_display_queue(0, true)`（按 POC 吐空重排序队列），VK 后端不感知 |
 | 5 | HEVC/VP9/AV1 | 本次只有 H264（对齐 P0 范围）；Std 转换与 slice 解析按 codec 扩展 |
+| 6 | transfer-only 队列族导出 | 现走 compute 队列族；SDMA 路径的多平面 pitch 另有上游疑点，见调试留档 §3 |
 
 ---
 
@@ -117,17 +122,33 @@ SPS/PPS **在创建 session / session parameters 时一次性给出**，但 CUVI
 `cuvid_parser.cpp` 的 `parse_packet_nal()` 里，SPS/PPS 两个 case 各做一次「stash + 双就绪则整体 store」：
 
 ```cpp
-// NAL_SPS case（解析成功后）:
-pending_sps_.assign(nal.data, nal.data + nal.size);
+// NAL_SPS case（解析成功后）: 存**原始字节**（保留防竞争字节 0x03）
+{
+    const uint8_t *src = nal.raw_data ? nal.raw_data : nal.data;
+    const std::size_t n = nal.raw_data ? static_cast<std::size_t>(nal.raw_size)
+                                       : static_cast<std::size_t>(nal.size);
+    pending_sps_.assign(src, src + n);
+}
 if (!pending_sps_.empty() && !pending_pps_.empty())
     VkSequenceCache::store(pending_sps_.data(), pending_sps_.size(),
                            pending_pps_.data(), pending_pps_.size());
 // NAL_PPS case 对称。
 ```
 
-**字节语义（关键）**：`nal.data` 是 **NAL header 起始、无 start code** 的（已去转义）字节，
-`nal.raw_data` 是含 start code 的原始字节。`VkSequenceCache::store()` 内部给 SPS/PPS 各**前置
-4 字节 start code**（`00 00 00 01`），使 `VulkanH264Decoder::ensure_session()`/`decode()` 里的
+**字节语义（关键，容易踩）**：
+
+| 字段 | 含义 |
+|---|---|
+| `nal.data` / `nal.size` | **已去转义（EPB 已剥）**的 RBSP，拷在 FFmpeg 的 rbsp buffer 里 |
+| `nal.raw_data` / `nal.raw_size` | NAL header 起始、**不含 start code**、**EPB 原样保留**的原始字节 |
+
+必须存 `raw_data`。存 `nal.data` 时，剥掉 0x03 之后可能残留 `00 00 01` 序列，再被
+`ff_h2645_extract_rbsp` 当成下一个 start code 截断，SPS/PPS 解析就崩
+（现象：`Overread VUI by 8 bits` / `sps_id 0 out of range`）。
+`raw_data` 为空（无 EPB、`data == raw_data` 的快速路径）时回退到 `data` 即可。
+
+`VkSequenceCache::store()` 内部给 SPS/PPS 各**前置 4 字节 start code**
+（`00 00 00 01`），使 `VulkanH264Decoder::ensure_session()`/`decode()` 里的
 `ff_h2645_packet_split` 能直接重新切分识别——与 P0 码流 buffer 的写法一致。
 
 ---
@@ -146,13 +167,73 @@ if (!pending_sps_.empty() && !pending_pps_.empty())
 
 ---
 
-## 7. 验证入口（待 AMD 机）
+## 7. 验证入口（AMD 机上已跑通）
 
 ```bash
 cd cuda_shim
-make libnvcuvid.so.1
-CUVID_SHIM_BACKEND=vk ./verify_cuvid_session          # 建 VK decoder + map 单帧（无像素校验）
-# 端到端像素校验建议新增一个 test，喂 test_320x240.h264 走 parser→decoder→map，对比软解参考
+make libnvcuvid.so.1 verify_kernel_read
+
+# 冒烟：建 VK decoder + map 单帧（无像素校验）
+CUVID_SHIM_BACKEND=vk ./verify_cuvid_session
+
+# 端到端：parser→decoder→map→HIP 读，逐帧 dump NV12 做像素比对
+RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
+  CUVID_DUMP_NV12_DIR=/tmp/vkd LD_LIBRARY_PATH=. \
+  ./verify_kernel_read ../testdata/h264/test_p_b.h264
 ```
 
-`verify_cuvid_session` 现有代码不变（走同一 CUVID 表面），把 `CUVID_SHIM_BACKEND=vk` 传进去即可切后端。
+- `RADV_PERFTEST=video_decode` **必开**，否则 RADV 不暴露 `VK_KHR_video_queue/decode/h264_decode`
+  与 video-decode 队列族，`vkCreateInstance` 直接失败（日志 `FAIL: no video decode queue family` / 错误 801）。
+- `verify_kernel_read` 的 `OK`/`Ysum`/`UVsum` 只验"kernel 读到的与 CPU 读到的是同一块内存"，
+  **不校验画面**；画面正确性要用 `CUVID_DUMP_NV12_DIR` dump 出来，和软解参考逐帧逐平面比
+  （注意 pitch 跨行 + NV12 交织），命令见
+  [B 帧挂死调试留档 §5](../verification/vulkan-bframe-hang-debug-log.md#5-验证命令可复现)。
+- 排障开关：`CUVID_SHIM_DEBUG_VK=1` 每帧打印解码参数；`CUVID_SHIM_NOCOPY=1` 只解码不导出
+  （用来分离"解码参数问题"与"多队列同步/导出问题"）。
+
+---
+
+## 8. 上机验证结论（RX 7900 XTX / RADV）
+
+### 8.1 根因：视频会话内存 use-after-free
+
+**违反的 Vulkan 规定**：绑定到 `VkVideoSessionKHR` 的 `VkDeviceMemory` 必须一直有效到
+`vkDestroyVideoSessionKHR`。原实现在 `vkBindVideoSessionMemoryKHR` 成功后**立刻**
+`vkFreeMemory`（当时的想法是"bind 完就没用了"）。
+
+为什么偏偏第 4 帧才炸：
+
+- RADV 的 `radv_BindVideoSessionMemoryKHR` → `copy_bind()` 只把 `radv_device_memory*`
+  **裸指针**存进 `vid->sessionctx` / `vid->ctx` / `vid->intra_only_dpb`
+  （`src/amd/vulkan/radv_video.c`），里面是 **VCN 固件自己的 context buffer**；
+- 每帧解码 `RDECODE_CMD_CONTEXT_BUFFER` 都用 `vid->ctx.mem->bo` 的地址重新编程；
+- 这块内存 free 之后回到 allocator，被后续分配（图像、bitstream buffer、query pool……）复用；
+  前几帧碰巧还没被写坏，到第 4 帧固件上下文已被覆盖 → 固件跑飞 → VCN ring timeout → mode1 reset。
+
+FFmpeg 的做法是把它放在 `common->mem[]` 里，只有 `ff_vk_video_common_uninit()`
+（session 销毁之后）才释放。
+
+### 8.2 修复清单
+
+| # | 修复 | 位置 |
+|---|---|---|
+| 1 | **会话内存所有权**：新增 `session_mems_`，bind 成功后转移所有权，`vkDestroyVideoSessionKHR` 之后才 `vkFreeMemory`（§8.1 的根因） | `vulkan_h264_decoder.{h,cpp}` `ensure_session()`/`reset()` |
+| 2 | **DPB 图不带 `TRANSFER_DST`**：改为 `VIDEO_DECODE_DPB \| TRANSFER_SRC`（RADV 对 VCN < 5 有"DPB 与 decode 目标分开分配"的约束；导出拷贝只需要 SRC） | 同上 |
+| 3 | **多平面导出的 texel 单位**：NV12 plane 1 的 texel 是 2 字节，`imageExtent`/`bufferRowLength`/`bufferImageHeight` 必须按 plane 1 的 texel 计（`{W/2,H/2,1}` / `pitch/2` / `H/2`）；旧代码把整行 `pitch`（字节）当 texel 传，radv 按超宽范围搬 → 色度错位。参考 FFmpeg `hwcontext_vulkan.c:get_plane_buf()` 的 `bufferRowLength /= desc->comp[i].step` | `decode()` 导出拷贝 |
+| 4 | **DPB 槽位升序分配**：旧 `free_dpb_slots_` 是 LIFO，第一帧就拿 slot 16，而 `rvcn_dec_message_avc_t::ref_frame_list[]` 只有 16 项、TIER_3 槽位掩码 16 位；改为升序取最小空闲槽，编号落在 `0..N-1` | `vulkan_h264_decoder.cpp` |
+| 5 | **barrier 覆盖 setup 槽与全部参考槽**：进解码前统一转到 `VIDEO_DECODE_DPB` 布局，`oldLayout` 用每个图像自己跟踪的 `layout`，消除"上一帧留成 `TRANSFER_SRC_OPTIMAL`"的隐式未定义行为 | 同上 |
+| 6 | **SPS/PPS 存 `raw_data`**（保留 EPB），否则重新切分时 `00 00 01` 被误判为 start code，解析崩 | `cuvid_parser.cpp`（见 §5） |
+| 7 | **可诊断性（保留在代码里）**：`VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR` 解码状态查询（受 `queryResultStatusSupport` 门控）；`vkWaitForFences` 30s 超时 + 检查返回值，`VK_ERROR_DEVICE_LOST` 立即置 `device_lost_` 停止提交；`CUVID_SHIM_DEBUG_VK=1` 每帧打印 `#N type= poc= fn= ref= rc0= rc1= setup_slot= refs= dst_idx= dst_img= setup_img= free={...}` | `vulkan_h264_decoder.{h,cpp}` |
+
+### 8.3 验证结果
+
+| 码流 | 帧数 | Vulkan | VAAPI |
+|---|---|---|---|
+| `test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
+| `test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
+| `test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+| `test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
+
+> 早期文档里"VAAPI 后端输出平坦 0x80"是**测量方法错误**（把 pitch 跨行的 NV12 当 planar
+> 去比），VAAPI 后端同样逐帧位精确。同理"色度 PSNR u/v ≈ 6 dB"也是测量问题。
+> 细节见 [调试留档 §2](../verification/vulkan-bframe-hang-debug-log.md#2-重要教训两个输出错误其实是测量方法错了)。

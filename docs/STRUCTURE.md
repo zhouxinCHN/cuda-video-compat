@@ -39,7 +39,8 @@
 │   │   ├── minimal-test-suite.md
 │   │   ├── zero-copy-closed-loop.md
 │   │   ├── quick-verify.md
-│   │   └── handoff-amd.md
+│   │   ├── handoff-amd.md
+│   │   └── vulkan-bframe-hang-debug-log.md
 │   └── evidence/
 │       ├── README.md
 │       ├── p0-nvidia-hardware.log
@@ -130,6 +131,7 @@
 | `cuda_shim/API_COVERAGE.md` | `docs/architecture/api-coverage.md` |
 | `cuda_shim/VULKAN_BACKEND.md` | `docs/architecture/vulkan-backend.md` |
 | `cuda_shim/HANDOFF_AMD.md` | `docs/verification/handoff-amd.md` |
+| `cuda_shim/PROGRESS_B_FRAME_DEBUG.md` | 结论并入 `docs/architecture/vulkan-backend.md` §8，过程留档 `docs/verification/vulkan-bframe-hang-debug-log.md` |
 | `零拷贝验证实验.md` | `docs/verification/zero-copy-experiment.md` |
 | `最小验证实验套件.md` | `docs/verification/minimal-test-suite.md` |
 | `zerocopy_test/README_闭环验证.md` | `docs/verification/zero-copy-closed-loop.md` |

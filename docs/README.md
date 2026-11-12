@@ -17,7 +17,7 @@
 | [CUDA 解码链路内存与同步模型](architecture/decode-memory-sync-model.md) | UVA vs UVM、`cuvidMapVideoFrame64`、VAAPI/Vulkan 导出导入与同步 |
 | [CUVID → VAAPI 映射表](architecture/cuvid-vaapi-mapping.md) | CUVID API/结构体到 VAAPI 的逐项映射 |
 | [API 覆盖基线](architecture/api-coverage.md) | P0 符号面、FFmpeg 直接调用、libcuda 范围 |
-| [Vulkan 后端说明](architecture/vulkan-backend.md) | `CUVID_SHIM_BACKEND=vk` 的架构、SPS/PPS 接缝、未完成项 |
+| [Vulkan 后端说明](architecture/vulkan-backend.md) | `CUVID_SHIM_BACKEND=vk` 的架构、SPS/PPS 接缝、B 帧挂死根因与修复（§8）、未完成项 |
 | [Vulkan Video 方案评估](architecture/vulkan-video-evaluation.md) | Vulkan Video 能力、约束与可行性 |
 | [Vulkan Video 调研 TODO](architecture/vulkan-video-todo.md) | P0 拆解、验证矩阵与后续事项 |
 | [HIPIFY 调研](architecture/hipify-research.md) | HIPIFY 能力边界与使用方式 |
@@ -34,6 +34,7 @@
 | [零拷贝闭环验证](verification/zero-copy-closed-loop.md) | VAAPI 解码闭环与 HIP 读写外部内存 |
 | [Quick Verify](verification/quick-verify.md) | mapped pointer kernel 读取、FFmpeg 双路径像素、零拷贝计数 |
 | [AMD 验证机交接](verification/handoff-amd.md) | Vulkan 后端在 AMD 机上的构建、运行与排障 |
+| [Vulkan B 帧挂死调试留档](verification/vulkan-bframe-hang-debug-log.md) | VCN ring timeout 的现场、已排除假设、测量陷阱、可复现验证命令 |
 
 ## 证据
 

@@ -51,15 +51,31 @@ export LD_LIBRARY_PATH=$PWD:/path/to/ffmpeg-7.1/libavutil:${LD_LIBRARY_PATH:-}
 ./test_func_full
 
 CUVID_SHIM_BACKEND=vaapi ./verify_kernel_read ../testdata/h264/test_p_b.h264
-CUVID_SHIM_BACKEND=vk    ./verify_kernel_read ../testdata/h264/test_p_b.h264
+
+# RADV 默认不暴露 video decode，必须开这个开关
+RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
+  ./verify_kernel_read ../testdata/h264/test_p_b.h264
 ```
 
 `CUDA_SHIM_TRACE_COPY=1` 会统计 D2D 的 `cuMemcpy2D*` / `cuMemcpyDtoD*` 次数，进程退出时打印汇总；
 用于区分 `h264_nvdec` 的真零拷贝与 `h264_cuvid` 的 FFmpeg 内部拷贝。
 
+排障/验证开关（都不影响默认路径）：
+
+| 变量 | 作用 |
+|---|---|
+| `RADV_PERFTEST=video_decode` | **Vulkan 后端必开**，否则 RADV 不暴露 video decode 队列族 |
+| `CUVID_SHIM_DEBUG_VK=1` | 每帧打印解码参数（type/poc/参考槽/setup 槽/DPB 空闲表） |
+| `CUVID_SHIM_NOCOPY=1` | 只解码不导出，分离"解码参数问题"与"同步/导出问题" |
+| `CUVID_DUMP_NV12_DIR=<dir>` | 每帧 dump NV12，用于和软解参考逐帧逐平面比对 |
+
+对比方法见 [B 帧挂死调试留档](../docs/verification/vulkan-bframe-hang-debug-log.md)。
+
 ## 状态与边界
 
-- VAAPI 后端的真实 decode/map 像素链路尚未完成正式验收。
+- **解码正确性**：Vulkan 与 VAAPI 后端在 RX 7900 XTX 上对四路 P/B 码流均**逐帧逐平面位精确**；
+  Vulkan 后端曾有 B 帧 VCN ring timeout，根因（会话内存 use-after-free）已修复，见
+  [Vulkan 后端说明 §8](../docs/architecture/vulkan-backend.md#8-上机验证结论rx-7900-xtx--radv)。
 - Vulkan 后端的 `h264_nvdec`、多流、seek/flush、动态分辨率仍未验收。
 - 异步跨栈 fence 未实现；当前是主机同步基线。
 - 本目录的测试是可行性验证，不是生产验收。
