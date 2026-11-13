@@ -1,5 +1,7 @@
 # Vulkan Video 编解码方案评估 + 零拷贝验证
 
+> 后端决策状态（2026-11-13）：VAAPI 与 Vulkan Video 尚未经领导拍板，是同级候选。本文比较结果是技术依据，不构成“VAAPI 主线/Vulkan 备选”的既定结论。
+
 > 本文回答两个问题：
 > 1. **用 Vulkan Video 接口实现编解码（替代 VAAPI 路线）可行吗？**
 > 2. **Vulkan Video ↔ HIP 能否零拷贝？**（附可执行验证 demo）
@@ -170,7 +172,7 @@ Vulkan Video 编码要真正跑起来，需要**逐层都成立**。任何一层
 
 | Tier | 后端 | 启用条件 | 零拷贝 | 备注 |
 |---|---|---|---|---|
-| **Tier 1** | VAAPI encode | VAAPI 驱动宣称支持目标 profile | 可（vaExportSurfaceHandle） | **默认首选**，成熟稳定 |
+| **Tier 1** | VAAPI encode | VAAPI 驱动宣称支持目标 profile | 可（vaExportSurfaceHandle） | 编码专项的成熟候选；不用于解码后端定级 |
 | **Tier 2** | Vulkan Video encode | 6.1 表 L1~L2 全 PASS 才启用 | 可（external_memory_fd） | **默认关闭**，靠开关打开 |
 | **Tier 3** | 软件编码（x264/x265/FFmpeg SW） | 前两者都不可用 | 无（需 CPU↔GPU 拷贝） | 性能差，但**保证功能可用** |
 
@@ -194,7 +196,7 @@ Vulkan Video 编码要真正跑起来，需要**逐层都成立**。任何一层
                               对比（画质/码率/性能），通过后再考虑 Tier 2 放行
 ```
 
-**一句话**：无论 demo 的 encode 结果如何，**VAAPI 都是编码的首选和默认**。Vulkan Video encode 只有当它「不仅宣称支持、且能力表完整、且画质码率对齐 NVENC」时，才允许作为 Tier 2 放行，且要保留一键回退 Tier 1 的开关。
+**一句话**：编码不在当前 P0 范围；若将来立项，VAAPI 是成熟候选，Vulkan Video encode 只有在扩展、能力表、画质码率和稳定性均通过后才值得投入。该编码专项排序不改变当前解码后端同级的结论。
 
 ### 6.5 若强行用 Vulkan Video 编码，需额外投入（成本清单）
 
@@ -340,9 +342,9 @@ hipImportExternalSemaphore: operation not supported
    - 性能损失：每帧需要主机等待
    - 但功能可用，不会阻塞
 
-#### VAAPI 仍然是更好的选择
+#### 两方案的技术取舍
 
-对比 Vulkan Video 的实测结果，VAAPI 的优势更明显：
+对比 Vulkan Video 的实测结果，两方案各有明确差异：
 
 | 维度 | VAAPI | Vulkan Video |
 |---|---|---|
@@ -352,15 +354,15 @@ hipImportExternalSemaphore: operation not supported
 | 跨平台 | ❌ Linux 专用 | ✅ 跨平台 |
 
 **结论**：
-- **短期**：VAAPI 是首选（真零拷贝；同步仍为主机基线，异步 fence 未落地）
-- **中长期**：Vulkan Video 可以作为备选后端（需要接受 tiled 转换 + 主机同步）
-- **如果坚持用 Vulkan Video**：需要实现 tiled→linear 转换层，并接受主机同步的性能损失
+- 两者同级接受验证，不预设首选或降级关系；
+- VAAPI 的优势是 LINEAR 真零拷贝；Vulkan 的代价是每帧一次 GPU 内 tiled→linear 转换，优势是跨平台标准；
+- 选型需结合业务平台、目标硬件能力、转换成本、维护投入和 FFmpeg 真实业务结果，由书面决策完成。
 
 ### 7.5 下一步建议
 
-1. **优先完成 VAAPI 编解码 shim**（真零拷贝；同步先走主机基线）
-2. **Vulkan Video 作为 Tier 2 备选**（仅在 VAAPI 不可用时启用）
-3. **如果未来需要跨平台支持**：投入 Vulkan Video 后端开发，但需要实现转换层
+1. 两后端继续使用同一宿主、像素、零拷贝、PTS 和资源判据；
+2. 补齐真实业务线程/队列、多 slice、多流、1080p/4K 和目标平台结果；
+3. 基于同口径证据进行后端选型，不以文档预设代替决策。
 
 ---
 
@@ -371,7 +373,8 @@ hipImportExternalSemaphore: operation not supported
 - [x] 已细化「Vulkan Video 编码」失败风险与多级降级策略（§6）
 - [x] **已在 AMD 机器完成实测**（RX 7900 XTX，结果见 §7）
 - [x] 实测结论：编解码能力完整，但零拷贝受限（只支持 OPTIMAL tiling），异步同步未落地
-- [x] 已实现 Tier 2 Vulkan Video 后端并完成 P0 数据通路（结果见 [Vulkan 后端实现 §8](Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)）
-- [ ] 是否升级为主线，仍待 FFmpeg 宿主双路径、多流/seek 和目标平台验收
+- [x] 已实现 Vulkan Video 后端并完成 P0 数据通路（结果见 [Vulkan 后端实现 §8](Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)）
+- [x] FFmpeg 双后端宿主矩阵 32/32，Vulkan `h264_nvdec` 通过合成参数集接入
+- [ ] 后端选型仍待真实业务、多 slice/多流、1080p/4K、长稳和目标平台同口径验收
 
-**总风险定调**：Vulkan Video 编解码能力完整，但零拷贝和异步同步受限。VAAPI 仍然是首选（真零拷贝；同步先走主机基线），Vulkan Video 作为 Tier 2 备选（需要接受 tiled 转换 + 主机同步）。
+**总风险定调**：Vulkan Video 编解码能力完整，但零拷贝和异步同步受限；VAAPI 与 Vulkan 同级，需以同口径证据完成选型。

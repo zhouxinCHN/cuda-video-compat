@@ -1,7 +1,8 @@
 #ifndef CUDA_SHIM_VULKAN_H264_DECODER_H
 #define CUDA_SHIM_VULKAN_H264_DECODER_H
 
-// Vulkan Video H.264 decode backend (Tier-2 alternative to VAAPI).
+// Vulkan Video H.264 decode backend. VAAPI and Vulkan are peer candidates;
+// neither is an approved main line.
 //
 // Mirrors VaapiH264Decoder's role behind the shared DecoderBackend interface:
 //   cuvidCreateDecoder -> VulkanH264Decoder::initialize
@@ -10,10 +11,11 @@
 //                          -> vkGetMemoryFdKHR -> HIP import, same as P0 PoC)
 //
 // Structural difference from VAAPI: Vulkan needs SPS/PPS up-front to build the
-// decode session + session parameters, but the CUVID host only hands this
-// decoder per-slice NALs. SPS/PPS arrive via VkSequenceCache (filled by
-// CuvidParser). ensure_session() lazily builds the Vulkan object graph the
-// first time SPS/PPS are both cached. See docs/architecture/Vulkan后端实现.md.
+// decode session + session parameters. h264_cuvid supplies them through
+// CuvidParser -> VkSequenceCache; h264_nvdec bypasses that parser and supplies
+// only CUVIDPICPARAMS, so the backend synthesizes a minimal Annex-B SPS/PPS
+// from those fields. ensure_session() lazily builds the Vulkan object graph
+// once either source is ready. See docs/architecture/Vulkan后端实现.md.
 
 #include <ffnvcodec/dynlink_cuda.h>
 #include <ffnvcodec/dynlink_cuviddec.h>
@@ -57,6 +59,11 @@ private:
     // Returns CUDA_SUCCESS on build OR when the cache is still empty (deferred);
     // caller checks session_ != VK_NULL_HANDLE to distinguish ready vs deferred.
     CUresult ensure_session();
+
+    // Prefer raw parameter sets from CuvidParser; fall back to the per-decoder
+    // synthetic pair built from CUVIDPICPARAMS for the h264_nvdec path.
+    bool fetch_sequence_params(std::vector<uint8_t> *sps, std::vector<uint8_t> *pps) const;
+    bool prepare_direct_sequence(const CUVIDPICPARAMS &picture);
 
     // Core object graph (all destroyed in reset()).
     VkInstance instance_ = VK_NULL_HANDLE;
@@ -132,6 +139,11 @@ private:
     uint32_t pitch_align_ = 256;
     uint8_t sps_id_ = 0;
     uint8_t pps_id_ = 0;
+
+    // h264_nvdec bypasses cuvidParseVideoData(), so VkSequenceCache is empty.
+    // These hold the Annex-B SPS/PPS reconstructed from CUVIDPICPARAMS.
+    std::vector<uint8_t> direct_sps_;
+    std::vector<uint8_t> direct_pps_;
     uint32_t decode_order_ = 0;   // decode-order cursor (output image reuse + first-submit WAR)
     bool session_reset_done_ = false;   // one-time VK_VIDEO_CODING_CONTROL_RESET after session create
     bool device_lost_ = false;          // set after a fence timeout / DEVICE_LOST; fail fast afterwards

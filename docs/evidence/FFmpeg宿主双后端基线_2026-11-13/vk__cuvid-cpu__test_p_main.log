@@ -1,0 +1,78 @@
+Input #0, h264, from '/home/mark/cuda-video-compat/testdata/h264/test_p_main.h264':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: h264 (Main), yuv420p(tv, progressive), 320x240 [SAR 1:1 DAR 4:3], 25 fps, 60 tbr, 1200k tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (h264_cuvid) -> rawvideo (native))
+[h264_cuvid @ 0x5ccb95fc6a00] ignoring invalid SAR: 0/0
+[Parsed_showinfo_0 @ 0x7fed00003900] config in time_base: 1/1200000, frame_rate: 30/1
+[Parsed_showinfo_0 @ 0x7fed00003900] config out time_base: 0/0, frame_rate: 0/0
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   0 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:1 type:? checksum:E585101A plane_checksum:[3D90143C CE11FBCF] mean:[122 128] stdev:[56.8 79.8]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+Output #0, rawvideo, to '/tmp/shim-ffmpeg-host-SN7gZB/vk__cuvid-cpu__test_p_main.nv12':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: rawvideo (NV12 / 0x3231564E), nv12(tv, gbr/reserved/reserved, progressive), 320x240 [SAR 1:1 DAR 4:3], q=2-31, 27648 kb/s, 30 fps, 30 tbn
+      Metadata:
+        encoder         : Lavc61.19.100 rawvideo
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   1 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:C9382775 plane_checksum:[CD561C6A E60A0B0B] mean:[122 128] stdev:[56.8 79.6]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   2 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:8EA35EA0 plane_checksum:[D4414391 725C1B0F] mean:[122 128] stdev:[56.8 79.5]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   3 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:18C89060 plane_checksum:[386F610D ED1B2F53] mean:[122 128] stdev:[56.9 79.4]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   4 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:C09DB066 plane_checksum:[1F1B7C43 1B253423] mean:[122 128] stdev:[57.1 79.3]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   5 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:1 type:? checksum:1051D65F plane_checksum:[37DFA270 A46633EF] mean:[123 128] stdev:[57.1 79.1]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   6 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:1 type:? checksum:A8F7F584 plane_checksum:[5EFFBE4D A3003737] mean:[123 128] stdev:[57.1 79.1]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   7 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:92E8F548 plane_checksum:[6E56C138 B1F03410] mean:[123 128] stdev:[57.2 78.9]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   8 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:59C2F2ED plane_checksum:[73C7CB69 63C22784] mean:[123 128] stdev:[57.1 78.9]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:   9 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:2EC7002B plane_checksum:[B983DEDE B9F3213E] mean:[123 128] stdev:[57.0 78.8]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  10 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:AC3CF8CF plane_checksum:[B260D80F C46D20C0] mean:[123 128] stdev:[56.9 78.7]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  11 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:867BF538 plane_checksum:[4306D87E 00461CBA] mean:[123 128] stdev:[56.9 78.6]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  12 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:373AF42E plane_checksum:[ABA5CE70 D4B325BE] mean:[123 128] stdev:[56.8 78.6]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  13 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:38A2E909 plane_checksum:[FAD0C9C6 4BF41F43] mean:[123 128] stdev:[56.7 78.5]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  14 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:EFCCE76F plane_checksum:[C6F8D447 44AD1328] mean:[123 128] stdev:[56.7 78.4]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  15 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:C756F476 plane_checksum:[2280D98D 8E561AE9] mean:[123 128] stdev:[56.6 78.3]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  16 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:2B25FC12 plane_checksum:[6702EC19 02920FF9] mean:[123 128] stdev:[56.7 78.4]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  17 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:D2A1FA9B plane_checksum:[FCC8E746 E0A51355] mean:[123 128] stdev:[56.7 78.4]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  18 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:8BF81986 plane_checksum:[779E059E 4EF513E8] mean:[123 128] stdev:[56.7 78.5]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  19 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:F0CA0DF2 plane_checksum:[894FF751 734D1692] mean:[123 128] stdev:[56.8 78.6]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  20 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:B0610F6B plane_checksum:[6E3AF69E 362018BE] mean:[123 128] stdev:[56.9 78.7]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  21 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:1163139C plane_checksum:[B963EE3B 97A02552] mean:[123 128] stdev:[57.0 78.8]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  22 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:C7C70A7F plane_checksum:[4C4EDF45 62B32B2B] mean:[123 128] stdev:[57.1 78.8]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  23 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:B1520F0F plane_checksum:[B184E042 A04D2EBE] mean:[123 128] stdev:[57.2 78.9]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  24 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:834F207E plane_checksum:[D58FF46B 97002C04] mean:[123 128] stdev:[57.2 79.0]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  25 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:E9630F32 plane_checksum:[C7F1E4F4 4CB12A2F] mean:[123 128] stdev:[57.2 79.0]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  26 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:11490677 plane_checksum:[EADFEAB7 DCEB1BB1] mean:[123 128] stdev:[57.2 79.1]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  27 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:27F4FB92 plane_checksum:[1104F7B0 757A03E2] mean:[123 128] stdev:[57.2 79.2]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  28 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:E452E32B plane_checksum:[81B8F6DC 0077EC40] mean:[123 128] stdev:[57.2 79.2]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[Parsed_showinfo_0 @ 0x7fed00003900] n:  29 pts:      0 pts_time:0       duration:      0 duration_time:0       fmt:nv12 cl:left sar:1/1 s:320x240 i:P iskey:0 type:? checksum:B137CF20 plane_checksum:[2D2CEFA9 4330DF68] mean:[123 128] stdev:[57.2 79.3]
+[Parsed_showinfo_0 @ 0x7fed00003900] color_range:tv color_space:gbr color_primaries:reserved color_trc:reserved
+[out#0/rawvideo @ 0x5ccb960452c0] video:3375KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.000000%
+frame=   30 fps=0.0 q=-0.0 Lsize=    3375KiB time=00:00:00.03 bitrate=829448.3kbits/s speed=0.212x    
+[cuda-shim] copy-trace: cuMemcpy2D* D2D=0 cuMemcpyDtoD*=0
+HARNESS_RESOURCE rc=0 elapsed_ms=957 fd_first=3 fd_last=6 fd_max=12 rss_first_kib=7852 rss_last_kib=193524 rss_max_kib=258668

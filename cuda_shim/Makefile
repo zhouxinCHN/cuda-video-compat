@@ -32,10 +32,10 @@ libcuda.so.1: src/libcuda.cpp include/cuda_shim_types.h
 	ln -sf libcuda.so.1 libcuda.so
 
 NVCUVID_SRC := src/libnvcuvid.cpp src/vaapi_h264_decoder.cpp src/hip_frame_mapper.cpp \
-	src/h264_picture_translate.cpp src/cuvid_parser.cpp \
+	src/h264_picture_translate.cpp src/h264_direct_params.cpp src/cuvid_parser.cpp \
 	src/backend_dispatch.cpp src/vulkan_h264_decoder.cpp
 NVCUVID_HEADERS := src/vaapi_h264_decoder.h src/hip_frame_mapper.h src/h264_picture_translate.h \
-	src/cuvid_parser.h src/h264_bit_reader.h \
+	src/h264_direct_params.h src/cuvid_parser.h src/h264_bit_reader.h \
 	src/decoder_backend.h src/backend_dispatch.h src/vulkan_h264_decoder.h src/vk_sequence_cache.h
 
 # Mesa Vulkan 头（Vulkan Video 后端需要；含 vk_video/* std 头）

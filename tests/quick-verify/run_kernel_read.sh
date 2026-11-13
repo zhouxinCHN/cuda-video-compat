@@ -37,6 +37,9 @@ fi
 FFMPEG_LIB_DIR=${FFMPEG_LIB_DIR:-$HOME/ffmpeg-7.1/libavutil}
 export LD_LIBRARY_PATH="$SHIM_DIR:$FFMPEG_LIB_DIR:${LD_LIBRARY_PATH:-}"
 export ROCM_PATH=${ROCM_PATH:-/opt/rocm}
+# RADV 的视频队列能力在部分 Mesa 版本需要显式开启。两个后端同级，
+# Vulkan 失败不能因缺少该环境变量而误报。
+export RADV_PERFTEST=${RADV_PERFTEST:-video_decode}
 
 for backend in $BACKENDS; do
     echo

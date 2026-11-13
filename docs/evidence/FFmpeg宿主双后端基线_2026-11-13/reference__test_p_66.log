@@ -1,0 +1,79 @@
+Input #0, h264, from '/home/mark/cuda-video-compat/testdata/h264/test_p_66.h264':
+  Duration: N/A, bitrate: N/A
+  Stream #0:0: Video: h264 (Constrained Baseline), yuv420p(tv, progressive), 320x240 [SAR 1:1 DAR 4:3], 25 fps, 60 tbr, 1200k tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (h264 (native) -> rawvideo (native))
+[Parsed_showinfo_0 @ 0x709e94002dc0] config in time_base: 1/1200000, frame_rate: 30/1
+[Parsed_showinfo_0 @ 0x709e94002dc0] config out time_base: 0/0, frame_rate: 0/0
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   0 pts:      0 pts_time:0       duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:1 type:I checksum:93D0101A plane_checksum:[3D90143C E8BEE309 0AA618C6] mean:[122 129 127] stdev:[56.8 77.9 81.6]
+[Parsed_showinfo_0 @ 0x709e94002dc0]   side data - H.26[45] User Data Unregistered SEI message: UUID=59948b28-11ec-45af-9675-19d41feaa94d
+[Parsed_showinfo_0 @ 0x709e94002dc0] User Data=4c61766336312e31392e313030202f20564141504920312e32302e30202f204d6573612047616c6c69756d206472697665722032352e322e382d307562756e7475302e32342e30342e3420666f7220414d4420526164656f6e2052582037393030205854582028726164656f6e73692c206e61766933312c204c4c564d2032302e312e322c2044524d20332e35392c20362e31312e302d31372d67656e657269632900
+[Parsed_showinfo_0 @ 0x709e94002dc0] 
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+Output #0, rawvideo, to '/tmp/shim-ffmpeg-host-SN7gZB/reference__test_p_66.nv12':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: rawvideo (NV12 / 0x3231564E), nv12(tv, progressive), 320x240 [SAR 1:1 DAR 4:3], q=2-31, 27648 kb/s, 30 fps, 30 tbn
+      Metadata:
+        encoder         : Lavc61.19.100 rawvideo
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   1 pts:  40000 pts_time:0.0333333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:0D9F2775 plane_checksum:[CD561C6A 1E79E3EE 6813270E] mean:[122 129 127] stdev:[56.8 77.8 81.4]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   2 pts:  80000 pts_time:0.0666667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:56225EA0 plane_checksum:[D4414391 BFD0E33A 953237C6] mean:[122 129 127] stdev:[56.8 77.7 81.2]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   3 pts: 120000 pts_time:0.1     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:5E0E9060 plane_checksum:[386F610D 0868E5CF 92E04975] mean:[122 129 127] stdev:[56.9 77.7 81.0]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   4 pts: 160000 pts_time:0.133333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:37E0B066 plane_checksum:[1F1B7C43 79DEE883 B96E4B91] mean:[122 129 127] stdev:[57.1 77.7 80.8]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   5 pts: 200000 pts_time:0.166667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:FB1AD65F plane_checksum:[37DFA270 1183E609 E7944DD7] mean:[123 129 127] stdev:[57.1 77.7 80.5]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   6 pts: 240000 pts_time:0.2     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:A76BF584 plane_checksum:[5EFFBE4D 8BDCE7E7 6D3D4F41] mean:[123 129 127] stdev:[57.1 77.7 80.4]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   7 pts: 280000 pts_time:0.233333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:BCECF548 plane_checksum:[6E56C138 C742F1D1 B2BF4230] mean:[123 129 127] stdev:[57.2 77.7 80.1]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   8 pts: 320000 pts_time:0.266667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:31B5F2ED plane_checksum:[73C7CB69 E981F3A3 623A33D2] mean:[123 130 127] stdev:[57.1 77.7 80.0]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:   9 pts: 360000 pts_time:0.3     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:3D20002B plane_checksum:[B983DEDE 0F4CF59A 63782B95] mean:[123 130 127] stdev:[57.0 77.6 79.9]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  10 pts: 400000 pts_time:0.333333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:5BD1F8CF plane_checksum:[B260D80F A527FCF8 CEDD23B9] mean:[123 130 127] stdev:[56.9 77.5 79.8]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  11 pts: 440000 pts_time:0.366667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:7B03F538 plane_checksum:[4306D87E D93C0536 329A1784] mean:[123 130 127] stdev:[56.9 77.4 79.8]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  12 pts: 480000 pts_time:0.4     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:F471F42E plane_checksum:[ABA5CE70 2934122A CAE81394] mean:[123 130 127] stdev:[56.8 77.4 79.7]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  13 pts: 520000 pts_time:0.433333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:A798E909 plane_checksum:[FAD0C9C6 A4EA1B8E 02E303B5] mean:[123 130 126] stdev:[56.7 77.3 79.6]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  14 pts: 560000 pts_time:0.466667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:E502E76F plane_checksum:[C6F8D447 BCE61C7D 60B7F69C] mean:[123 130 126] stdev:[56.7 77.2 79.5]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  15 pts: 600000 pts_time:0.5     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:C3A8F476 plane_checksum:[2280D98D F5852643 4BEAF497] mean:[123 130 126] stdev:[56.6 77.2 79.4]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  16 pts: 640000 pts_time:0.533333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:1335FC12 plane_checksum:[6702EC19 A1161C96 D9CEF354] mean:[123 130 126] stdev:[56.7 77.2 79.5]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  17 pts: 680000 pts_time:0.566667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:7EAFFA9B plane_checksum:[FCC8E746 319D1C6C 3A2AF6DA] mean:[123 130 126] stdev:[56.7 77.3 79.5]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  18 pts: 720000 pts_time:0.6     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:117E1986 plane_checksum:[779E059E 83740C96 27A80752] mean:[123 130 126] stdev:[56.7 77.3 79.7]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  19 pts: 760000 pts_time:0.633333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:FCA60DF2 plane_checksum:[894FF751 89120532 393D1160] mean:[123 130 126] stdev:[56.8 77.4 79.8]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  20 pts: 800000 pts_time:0.666667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:89300F6B plane_checksum:[6E3AF69E 5945FBF6 50201CB9] mean:[123 130 127] stdev:[56.9 77.5 79.9]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  21 pts: 840000 pts_time:0.7     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:B87A139C plane_checksum:[B963EE3B 4AECF643 18642F00] mean:[123 130 127] stdev:[57.0 77.6 79.9]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  22 pts: 880000 pts_time:0.733333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:87610A7F plane_checksum:[4C4EDF45 7188EC86 5F153E96] mean:[123 129 127] stdev:[57.1 77.7 79.9]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  23 pts: 920000 pts_time:0.766667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:68520F0F plane_checksum:[B184E042 C920E5B3 2B7D48FC] mean:[123 129 127] stdev:[57.2 77.8 80.0]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  24 pts: 960000 pts_time:0.8     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:3AA4207E plane_checksum:[D58FF46B 2FA4D8E0 C55F5315] mean:[123 129 127] stdev:[57.2 77.9 80.1]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  25 pts:1000000 pts_time:0.833333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:6CDB0F32 plane_checksum:[C7F1E4F4 3D1ED8D8 91D75148] mean:[123 129 127] stdev:[57.2 77.9 80.1]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  26 pts:1040000 pts_time:0.866667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:D8130677 plane_checksum:[EADFEAB7 AD2ACEC6 67B24CDC] mean:[123 129 127] stdev:[57.2 77.9 80.2]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  27 pts:1080000 pts_time:0.9     duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:1509FB92 plane_checksum:[1104F7B0 0FF4C45B 4A853F78] mean:[123 129 127] stdev:[57.2 78.0 80.3]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  28 pts:1120000 pts_time:0.933333 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:39B3E32B plane_checksum:[81B8F6DC 10F6BA7B 082831C5] mean:[123 129 127] stdev:[57.2 78.1 80.3]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[Parsed_showinfo_0 @ 0x709e94002dc0] n:  29 pts:1160000 pts_time:0.966667 duration:  40000 duration_time:0.0333333 fmt:yuv420p cl:left sar:1/1 s:320x240 i:P iskey:0 type:P checksum:67C0CF20 plane_checksum:[2D2CEFA9 3ED2B515 77E82A53] mean:[123 129 127] stdev:[57.2 78.1 80.4]
+[Parsed_showinfo_0 @ 0x709e94002dc0] color_range:tv color_space:unknown color_primaries:unknown color_trc:unknown
+[out#0/rawvideo @ 0x63fa92e6d3c0] video:3375KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.000000%
+frame=   30 fps=0.0 q=-0.0 Lsize=    3375KiB time=00:00:01.00 bitrate=27648.0kbits/s speed=17.9x    
+HARNESS_RESOURCE rc=0 elapsed_ms=128 fd_first=3 fd_last=5 fd_max=5 rss_first_kib=11816 rss_last_kib=43880 rss_max_kib=43880

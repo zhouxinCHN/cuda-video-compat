@@ -13,6 +13,13 @@
 
 namespace cuvid_shim {
 
+namespace {
+// FFmpeg 在 unsafe_output/多线程场景会通过 -extra_hw_frames 申请更多解码面。
+// 原上限 32 会在 host 申请 33+ 时直接返回 NOT_SUPPORTED；这里允许到 64，
+// 实际驱动仍须通过 vaCreateSurfaces/vaCreateContext 验证。
+constexpr unsigned int kMaxDecodeSurfaces = 64;
+}
+
 VaapiH264Decoder::~VaapiH264Decoder() {
     reset();
 }
@@ -149,7 +156,8 @@ CUresult VaapiH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
         info.DeinterlaceMode != cudaVideoDeinterlaceMode_Weave ||
         info.ulWidth == 0 || info.ulHeight == 0 ||
         info.ulWidth > 4096 || info.ulHeight > 4096 ||
-        info.ulNumDecodeSurfaces == 0 || info.ulNumDecodeSurfaces > 32) {
+        info.ulNumDecodeSurfaces == 0 ||
+        info.ulNumDecodeSurfaces > kMaxDecodeSurfaces) {
         return static_cast<CUresult>(801);
     }
     if ((info.ulWidth & 1) || (info.ulHeight & 1)) return CUDA_ERROR_INVALID_VALUE;
@@ -175,6 +183,12 @@ CUresult VaapiH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
     coded_width_ = static_cast<int>(info.ulWidth);
     coded_height_ = static_cast<int>(info.ulHeight);
     surfaces_.assign(info.ulNumDecodeSurfaces, VA_INVALID_SURFACE);
+    if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
+        std::fprintf(stderr,
+                     "SHIM VA INIT %ux%u surfaces=%u target=%ux%u\n",
+                     info.ulWidth, info.ulHeight, info.ulNumDecodeSurfaces,
+                     info.ulTargetWidth, info.ulTargetHeight);
+    }
 
     uint64_t modifiers[] = {DRM_FORMAT_MOD_LINEAR};
     VADRMFormatModifierList modifier_list = {1, modifiers};

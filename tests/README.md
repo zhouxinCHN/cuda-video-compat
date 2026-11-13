@@ -31,8 +31,10 @@ make run
 
 # 5. Quick Verify（AMD）
 cd tests/quick-verify
-BACKENDS=vaapi ./run_kernel_read.sh
-BACKENDS=vaapi ./run_ffmpeg_compare.sh
+./run_kernel_read.sh
+
+# 四路码流 × 两个同级候选后端 × 四种宿主模式
+FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 ```
 
 完整的环境准备、判据与排障见[验证手册](../docs/verification/验证手册.md)。
@@ -41,11 +43,15 @@ BACKENDS=vaapi ./run_ffmpeg_compare.sh
 
 2026-11-12 AMD 验证机：P0 双后端四路码流全部通过，`verify_kernel_read` errors=0，`make check` / `check_func` / parser / session 全 PASS。数字与边界详见 [P0 闭环验证结果](../docs/evidence/P0闭环验证结果_2026-11-12.md)。
 
+2026-11-13 FFmpeg 宿主矩阵修复后：32 RUN / 32 PASS / 0 FAIL / 0 SKIP，双后端 `nvdec-unsafe` 均 D2D=0 且像素一致。结果与原始日志见 [FFmpeg 宿主双后端基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。另有带 PTS 的 30 帧 MP4 严格顺序验证，双后端共 8 种模式 8 PASS / 0 FAIL，见 [PTS 顺序验证](../docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
+
 ## 注意
 
 - `vulkan-video/full/` 依赖系统 Vulkan-Headers 版本；当前以 AMD 验证机的 Mesa 25.2.8 头为准，其他 Vulkan SDK 版本可能需要适配。
 - `tests/zerocopy/` 的参考 YUV 不提交，Makefile 会自动生成。
-- `FFMPEG` 在 Makefile 里表示 FFmpeg 源码目录；在 `tests/quick-verify/run_ffmpeg_compare.sh` 里表示 ffmpeg 可执行文件名。两者同名但语义不同。
+- `FFMPEG` 在 Makefile 里表示 FFmpeg 源码目录；在 `tests/quick-verify/run_ffmpeg_compare.sh` 里表示 ffmpeg 可执行文件。两者同名但语义不同。
+- FFmpeg 7.1 中 `h264_nvdec` 是 hwaccel，不是 decoder；宿主脚本必须使用 `-hwaccel nvdec`，并固定加载 FFmpeg 构建树中的库。
+- VAAPI 与 Vulkan Video 是同级候选后端，验证脚本不会把任意一方的失败自动记为 SKIP。
 
 ## 约定
 

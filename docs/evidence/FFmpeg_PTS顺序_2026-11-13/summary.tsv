@@ -1,0 +1,9 @@
+backend	mode	stream	rc	ref_frames	out_frames	pixel	pts	d2d	fd_first	fd_last	fd_max	rss_first_kib	rss_last_kib	rss_max_kib	result	reason
+vaapi	nvdec-safe	test_pts_320x240.mp4	0	30	30	PASS	PASS	60	3	6	13	6504	201520	268828	PASS	ok
+vaapi	nvdec-unsafe	test_pts_320x240.mp4	0	30	30	PASS	PASS	0	3	5	21	11820	150704	269200	PASS	ok
+vaapi	cuvid-cpu	test_pts_320x240.mp4	0	30	30	PASS	PASS	0	3	5	12	6504	141244	251336	PASS	ok
+vaapi	cuvid-cuda	test_pts_320x240.mp4	0	30	30	PASS	PASS	90	3	5	12	9844	133512	251864	PASS	ok
+vk	nvdec-safe	test_pts_320x240.mp4	0	30	30	PASS	PASS	60	3	6	26	9848	215920	285876	PASS	ok
+vk	nvdec-unsafe	test_pts_320x240.mp4	0	30	30	PASS	PASS	0	3	5	36	11124	286780	286780	PASS	ok
+vk	cuvid-cpu	test_pts_320x240.mp4	0	30	30	PASS	PASS	0	3	6	13	9172	203840	259456	PASS	ok
+vk	cuvid-cuda	test_pts_320x240.mp4	0	30	30	PASS	PASS	90	3	7	12	9156	232376	259096	PASS	ok

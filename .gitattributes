@@ -9,8 +9,13 @@ Makefile   text eol=lf
 *.yaml     text eol=lf
 
 *.h264     binary
+*.mp4      binary
+*.mkv      binary
 *.yuv      binary
 *.nv12     binary
 *.gray     binary
 *.png      binary
 *.jpg      binary
+
+# Generated evidence keeps raw tool output, including trailing spaces.
+docs/evidence/**/*.log -whitespace

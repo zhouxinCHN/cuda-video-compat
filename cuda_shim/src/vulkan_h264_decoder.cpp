@@ -1,6 +1,7 @@
 #include "vulkan_h264_decoder.h"
 
 #include "hip_frame_mapper.h"
+#include "h264_direct_params.h"
 #include "vk_sequence_cache.h"
 
 #include <vulkan/vulkan.h>
@@ -33,6 +34,9 @@ namespace cuvid_shim {
 namespace {
 
 constexpr CUresult kNotSupported = static_cast<CUresult>(801);
+// h264_nvdec + FFmpeg unsafe_output 会请求超过 32 个 surface 来容纳线程和
+// 下游持有的零拷贝帧；上限必须与 VAAPI 后端一致。
+constexpr unsigned int kMaxDecodeSurfaces = 64;
 #ifndef CUDA_ERROR_OUT_OF_MEMORY
 #define CUDA_ERROR_OUT_OF_MEMORY static_cast<CUresult>(2)
 #endif
@@ -471,6 +475,53 @@ void VulkanH264Decoder::reset() {
     poc_ctx_ = {};
     profile_info_ = {};
     h264_profile_info_ = {};
+    direct_sps_.clear();
+    direct_pps_.clear();
+}
+
+bool VulkanH264Decoder::fetch_sequence_params(std::vector<uint8_t> *sps,
+                                               std::vector<uint8_t> *pps) const {
+    if (!direct_sps_.empty() && !direct_pps_.empty()) {
+        *sps = direct_sps_;
+        *pps = direct_pps_;
+        return true;
+    }
+    return VkSequenceCache::fetch(sps, pps);
+}
+
+bool VulkanH264Decoder::prepare_direct_sequence(const CUVIDPICPARAMS &picture) {
+    const uint8_t *src = picture.pBitstreamData;
+    const uint32_t len = picture.nBitstreamDataLen;
+    const bool nvdec_annex_b =
+        src && ((len >= 4 && src[0] == 0 && src[1] == 0 && src[2] == 0 && src[3] == 1) ||
+                (len >= 3 && src[0] == 0 && src[1] == 0 && src[2] == 1));
+
+    // h264_nvdec 的 slice 自带 start code，且永远不填进程级 cache；
+    // 直接使用本 decoder 的合成参数集，避免误用其它 parser 留下的旧 cache。
+    std::vector<uint8_t> cached_sps;
+    std::vector<uint8_t> cached_pps;
+    if (!nvdec_annex_b && VkSequenceCache::fetch(&cached_sps, &cached_pps)) return true;
+    if (!direct_sps_.empty() && !direct_pps_.empty()) return true;
+
+    if (picture.nNumSlices > 1) {
+        // The current Vulkan command path encodes one slice offset. Do not
+        // accept a multi-slice picture and silently decode only its first slice.
+        if (std::getenv("CUVID_SHIM_DEBUG_VK"))
+            std::fprintf(stderr, "[vk] direct params: multi-slice unsupported (%u)\n",
+                         picture.nNumSlices);
+        return false;
+    }
+    if (!synthesize_h264_parameter_sets(picture, &direct_sps_, &direct_pps_)) {
+        if (std::getenv("CUVID_SHIM_DEBUG_VK"))
+            std::fprintf(stderr, "[vk] cannot synthesize SPS/PPS from CUVIDPICPARAMS\n");
+        return false;
+    }
+    if (std::getenv("CUVID_SHIM_DEBUG_VK")) {
+        std::fprintf(stderr,
+                     "[vk] synthesized SPS/PPS from CUVIDPICPARAMS: sps=%zu pps=%zu bytes\n",
+                     direct_sps_.size(), direct_pps_.size());
+    }
+    return true;
 }
 
 // ===========================================================================
@@ -486,7 +537,8 @@ CUresult VulkanH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
         info.DeinterlaceMode != cudaVideoDeinterlaceMode_Weave ||
         info.ulWidth == 0 || info.ulHeight == 0 ||
         info.ulWidth > 4096 || info.ulHeight > 4096 ||
-        info.ulNumDecodeSurfaces == 0 || info.ulNumDecodeSurfaces > 32)
+        info.ulNumDecodeSurfaces == 0 ||
+        info.ulNumDecodeSurfaces > kMaxDecodeSurfaces)
         return kNotSupported;
     if ((info.ulWidth & 1) || (info.ulHeight & 1)) return CUDA_ERROR_INVALID_VALUE;
 
@@ -499,18 +551,21 @@ CUresult VulkanH264Decoder::initialize(const CUVIDDECODECREATEINFO &info) {
     // can only finalize them in ensure_session). Here we just reserve bookkeeping.
     outputs_.resize(info.ulNumDecodeSurfaces);
 
-    // build Vulkan instance/device now (SPS/PPS only needed for the video session,
-    // not for instance/device/queue discovery).
-    return ensure_session();
+    // Always defer session creation to decode(). For h264_cuvid the CuvidParser
+    // cache may already be ready here, but for h264_nvdec no parameter set exists
+    // until the first picture. Building here could also pick up a stale process
+    // cache left by a different parser; prepare_direct_sequence() makes the
+    // per-picture source explicit before the first ensure_session().
+    return CUDA_SUCCESS;
 }
 
 CUresult VulkanH264Decoder::ensure_session() {
     auto dbg = [](const char *s) { if (std::getenv("CUVID_SHIM_DEBUG_VK")) std::fprintf(stderr, "[vk] %s\n", s); };
     // SPS/PPS required before we can build the video session + parameters.
     std::vector<uint8_t> sps_nal, pps_nal;
-    if (!VkSequenceCache::fetch(&sps_nal, &pps_nal)) {
-        // Deferred: the CUVID host may call cuvidDecodePicture before the parser
-        // has delivered SPS/PPS. Return success; decode() will re-trigger.
+    if (!fetch_sequence_params(&sps_nal, &pps_nal)) {
+        // Deferred: cuvidCreateDecoder runs before the first picture. decode()
+        // supplies synthetic params for the h264_nvdec path and re-triggers.
         return CUDA_SUCCESS;
     }
 
@@ -1010,10 +1065,19 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     // transfer 队列的导出拷贝、不用跨队列 semaphore。用来区分"解码参数问题"
     // 和"多队列同步问题"。
     const bool nocopy = std::getenv("CUVID_SHIM_NOCOPY") != nullptr;
+
+    // h264_nvdec 不经过 cuvidParseVideoData：参数集只能从 CUVIDPICPARAMS
+    // 重建；h264_cuvid 仍优先使用 CuvidParser 缓存的原始 SPS/PPS。
+    if (!prepare_direct_sequence(picture)) return kNotSupported;
+
     if (device_ == VK_NULL_HANDLE || session_ == VK_NULL_HANDLE) {
         CUresult r = ensure_session();
         if (r != CUDA_SUCCESS) return r;
-        if (session_ == VK_NULL_HANDLE) return CUDA_SUCCESS;   // still waiting on SPS/PPS
+        if (session_ == VK_NULL_HANDLE) {
+            // 以前这里返回成功，调用方随后 map 时只看到 INVALID_VALUE。
+            // 没有 SPS/PPS/session 时不能伪造成功。
+            return kNotSupported;
+        }
     }
     if (picture.CurrPicIdx < 0 || static_cast<std::size_t>(picture.CurrPicIdx) >= outputs_.size())
         return CUDA_ERROR_INVALID_VALUE;
@@ -1025,7 +1089,7 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     // We need the parsed SPS/PPS to fill StdVideoDecodeH264PictureInfo + parse the
     // slice header. Re-fetch + parse from cache (cheap for single-stream).
     std::vector<uint8_t> sps_nal, pps_nal;
-    if (!VkSequenceCache::fetch(&sps_nal, &pps_nal)) return kNotSupported;
+    if (!fetch_sequence_params(&sps_nal, &pps_nal)) return kNotSupported;
 
     H264ParamSets ps;
     std::memset(&ps, 0, sizeof(ps));
@@ -1058,16 +1122,25 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     for (int i = 0; i < MAX_PPS_COUNT && !pps; i++) if (ps.pps_list[i]) pps = ps.pps_list[i];
     if (!sps || !pps) { ff_h264_ps_uninit(&ps); return kNotSupported; }
 
-    // --- 1. parse the slice header (the CUVID host passes one slice NAL at a time) ---
-    // picture.pBitstreamData 是 parser 传过来的**裸 NAL**（nal.raw_data，无 start
-    // code），而 ff_h2645_packet_split 要求 Annex-B 起始码，否则报
-    // "No start code is found."。这里临时补一个 00 00 00 01 再解析。
+    // --- 1. parse the slice header ---
+    // 两种宿主输入：
+    //   h264_cuvid: parser 传入**裸 NAL**（无 start code），需要补起始码。
+    //   h264_nvdec: FFmpeg nvdec_h264 已把 slice 按 Annex-B 组装，数据自带
+    //               start code；不能再补一个，否则会多出一个空 NAL。
+    if (!picture.pBitstreamData || picture.nBitstreamDataLen == 0)
+        { ff_h264_ps_uninit(&ps); return CUDA_ERROR_INVALID_VALUE; }
     std::vector<uint8_t> slice_buf;
     slice_buf.reserve(4 + picture.nBitstreamDataLen);
-    const uint8_t sc[4] = { 0x00, 0x00, 0x00, 0x01 };
-    slice_buf.insert(slice_buf.end(), sc, sc + 4);
-    slice_buf.insert(slice_buf.end(), picture.pBitstreamData,
-                     picture.pBitstreamData + picture.nBitstreamDataLen);
+    const uint8_t *src = picture.pBitstreamData;
+    const uint32_t src_len = picture.nBitstreamDataLen;
+    const bool has_start_code =
+        (src_len >= 4 && src[0] == 0 && src[1] == 0 && src[2] == 0 && src[3] == 1) ||
+        (src_len >= 3 && src[0] == 0 && src[1] == 0 && src[2] == 1);
+    if (!has_start_code) {
+        const uint8_t sc[4] = { 0x00, 0x00, 0x00, 0x01 };
+        slice_buf.insert(slice_buf.end(), sc, sc + 4);
+    }
+    slice_buf.insert(slice_buf.end(), src, src + src_len);
     H2645Packet slice_pkt;
     std::memset(&slice_pkt, 0, sizeof(slice_pkt));
     if (ff_h2645_packet_split(&slice_pkt, slice_buf.data(), static_cast<int>(slice_buf.size()),
@@ -1075,13 +1148,18 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         ff_h264_ps_uninit(&ps); return kNotSupported;
     }
     H2645NAL *slice_nal = nullptr;
+    int slice_nal_count = 0;
     for (int i = 0; i < slice_pkt.nb_nals; i++) {
         if (slice_pkt.nals[i].type == H264_NAL_SLICE || slice_pkt.nals[i].type == H264_NAL_IDR_SLICE) {
-            slice_nal = &slice_pkt.nals[i];
-            break;
+            if (!slice_nal) slice_nal = &slice_pkt.nals[i];
+            ++slice_nal_count;
         }
     }
     if (!slice_nal) { dbg("no slice NAL found"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported; }
+    if (slice_nal_count != 1) {
+        dbg("multi-slice picture unsupported by current Vulkan command path");
+        ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
+    }
 
     SliceInfo si;
     if (!parse_slice_header(slice_nal, sps, pps, &si)) {

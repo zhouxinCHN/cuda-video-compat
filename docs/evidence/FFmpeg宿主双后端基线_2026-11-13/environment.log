@@ -1,0 +1,171 @@
+=== date ===
+2026-11-13T14:31:57+08:00
+
+=== repository ===
+a8ddff304c765ff73267885f702d3363265dfc91
+ M README.md
+ M cuda_shim/Makefile
+ M cuda_shim/README.md
+ M cuda_shim/src/vaapi_h264_decoder.cpp
+ M cuda_shim/src/vulkan_h264_decoder.cpp
+ M cuda_shim/src/vulkan_h264_decoder.h
+ M docs/README.md
+ M "docs/architecture/CUDA\345\205\274\345\256\271\345\261\202\346\200\273\344\275\223\346\226\271\346\241\210.md"
+ M "docs/architecture/CUDA\345\205\274\345\256\271\345\261\202\346\226\271\346\241\210_\346\225\264\345\220\210\347\211\210.md"
+ M "docs/architecture/Vulkan\345\220\216\347\253\257\345\256\236\347\216\260.md"
+ M "docs/architecture/\345\206\205\345\255\230\344\270\216\345\220\214\346\255\245\346\250\241\345\236\213.md"
+ M docs/evidence/README.md
+ M "docs/verification/\351\252\214\350\257\201\346\211\213\345\206\214.md"
+ M "docs/\344\273\223\345\272\223\347\273\223\346\236\204\344\270\216\350\277\201\347\247\273.md"
+ M testdata/README.md
+ M tests/README.md
+ M tests/quick-verify/run_ffmpeg_compare.sh
+?? cuda_shim/src/h264_direct_params.cpp
+?? cuda_shim/src/h264_direct_params.h
+?? testdata/h264/test_pts_320x240.mp4
+
+=== system ===
+Linux mark-ubuntu 6.11.0-17-generic #17~24.04.2-Ubuntu SMP PREEMPT_DYNAMIC Mon Jan 20 22:48:29 UTC 2 x86_64 x86_64 x86_64 GNU/Linux
+b1:00.0 VGA compatible controller [0300]: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900M] [1002:744c] (rev c8)
+	Subsystem: Sapphire Technology Limited NITRO+ RX 7900 XTX Vapor-X [1da2:e471]
+	Kernel driver in use: amdgpu
+	Kernel modules: amdgpu
+
+=== ffmpeg ===
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+built with gcc 13 (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+configuration: --enable-vulkan --enable-libshaderc --enable-vaapi --enable-libdav1d --enable-libvpx --enable-hwaccel='h264_vaapi,hevc_vaapi,vp9_vaapi,av1_vaapi' --enable-hwaccel='h264_vulkan,hevc_vulkan,av1_vulkan' --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --enable-x86asm --disable-static --enable-shared --prefix=/usr/local
+libavutil      59. 39.100 / 59. 39.100
+libavcodec     61. 19.100 / 61. 19.100
+libavformat    61.  7.100 / 61.  7.100
+libavdevice    61.  3.100 / 61.  3.100
+libavfilter    10.  4.100 / 10.  4.100
+libswscale      8.  3.100 /  8.  3.100
+libswresample   5.  3.100 /  5.  3.100
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+  built with gcc 13 (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+  configuration: --enable-vulkan --enable-libshaderc --enable-vaapi --enable-libdav1d --enable-libvpx --enable-hwaccel='h264_vaapi,hevc_vaapi,vp9_vaapi,av1_vaapi' --enable-hwaccel='h264_vulkan,hevc_vulkan,av1_vulkan' --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --enable-x86asm --disable-static --enable-shared --prefix=/usr/local
+  libavutil      59. 39.100 / 59. 39.100
+  libavcodec     61. 19.100 / 61. 19.100
+  libavformat    61.  7.100 / 61.  7.100
+  libavdevice    61.  3.100 / 61.  3.100
+  libavfilter    10.  4.100 / 10.  4.100
+  libswscale      8.  3.100 /  8.  3.100
+  libswresample   5.  3.100 /  5.  3.100
+Hardware acceleration methods:
+cuda
+vaapi
+drm
+vulkan
+
+ V..... av1_cuvid            Nvidia CUVID AV1 decoder (codec av1)
+ VFS..D h264                 H.264 / AVC / MPEG-4 AVC / MPEG-4 part 10
+ V..... h264_v4l2m2m         V4L2 mem2mem H.264 decoder wrapper (codec h264)
+ V..... h264_cuvid           Nvidia CUVID H264 decoder (codec h264)
+ V..... hevc_cuvid           Nvidia CUVID HEVC decoder (codec hevc)
+ V..... mjpeg_cuvid          Nvidia CUVID MJPEG decoder (codec mjpeg)
+ V..... mpeg1_cuvid          Nvidia CUVID MPEG1VIDEO decoder (codec mpeg1video)
+ V..... mpeg2_cuvid          Nvidia CUVID MPEG2VIDEO decoder (codec mpeg2video)
+ V..... mpeg4_cuvid          Nvidia CUVID MPEG4 decoder (codec mpeg4)
+ V..... vc1_cuvid            Nvidia CUVID VC1 decoder (codec vc1)
+ V..... vp8_cuvid            Nvidia CUVID VP8 decoder (codec vp8)
+ V..... vp9_cuvid            Nvidia CUVID VP9 decoder (codec vp9)
+#define FFMPEG_CONFIGURATION "--enable-vulkan --enable-libshaderc --enable-vaapi --enable-libdav1d --enable-libvpx --enable-hwaccel='h264_vaapi,hevc_vaapi,vp9_vaapi,av1_vaapi' --enable-hwaccel='h264_vulkan,hevc_vulkan,av1_vulkan' --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --enable-x86asm --disable-static --enable-shared --prefix=/usr/local"
+
+=== linked FFmpeg libraries ===
+	linux-vdso.so.1 (0x000071920034c000)
+	libavdevice.so.61 => /home/mark/ffmpeg-7.1/libavdevice/libavdevice.so.61 (0x00007192002d8000)
+	libavfilter.so.10 => /home/mark/ffmpeg-7.1/libavfilter/libavfilter.so.10 (0x00007191ffe00000)
+	libavformat.so.61 => /home/mark/ffmpeg-7.1/libavformat/libavformat.so.61 (0x00007191ffa00000)
+	libavcodec.so.61 => /home/mark/ffmpeg-7.1/libavcodec/libavcodec.so.61 (0x00007191fe400000)
+	libswresample.so.5 => /home/mark/ffmpeg-7.1/libswresample/libswresample.so.5 (0x00007192002b7000)
+	libswscale.so.8 => /home/mark/ffmpeg-7.1/libswscale/libswscale.so.8 (0x00007191ffd60000)
+	libavutil.so.59 => /home/mark/ffmpeg-7.1/libavutil/libavutil.so.59 (0x00007191fd200000)
+	libm.so.6 => /lib/x86_64-linux-gnu/libm.so.6 (0x00007191ff917000)
+	libc.so.6 => /lib/x86_64-linux-gnu/libc.so.6 (0x00007191fce00000)
+	libdrm.so.2 => /lib/x86_64-linux-gnu/libdrm.so.2 (0x000071920028f000)
+	libxcb.so.1 => /lib/x86_64-linux-gnu/libxcb.so.1 (0x00007191ffd37000)
+	libva.so.2 => /lib/x86_64-linux-gnu/libva.so.2 (0x00007191ffd07000)
+	libshaderc.so.1 => /lib/x86_64-linux-gnu/libshaderc.so.1 (0x00007191fc400000)
+	libz.so.1 => /lib/x86_64-linux-gnu/libz.so.1 (0x00007191ffceb000)
+	libvpx.so.9 => /lib/x86_64-linux-gnu/libvpx.so.9 (0x00007191fc000000)
+	libdav1d.so.7 => /lib/x86_64-linux-gnu/libdav1d.so.7 (0x00007191fd024000)
+	libva-drm.so.2 => /lib/x86_64-linux-gnu/libva-drm.so.2 (0x0000719200286000)
+	libva-x11.so.2 => /lib/x86_64-linux-gnu/libva-x11.so.2 (0x000071920027e000)
+	libX11.so.6 => /lib/x86_64-linux-gnu/libX11.so.6 (0x00007191fccc2000)
+	/lib64/ld-linux-x86-64.so.2 (0x000071920034e000)
+	libXau.so.6 => /lib/x86_64-linux-gnu/libXau.so.6 (0x0000719200278000)
+	libXdmcp.so.6 => /lib/x86_64-linux-gnu/libXdmcp.so.6 (0x00007191ffce3000)
+	libstdc++.so.6 => /lib/x86_64-linux-gnu/libstdc++.so.6 (0x00007191fbc00000)
+	libgcc_s.so.1 => /lib/x86_64-linux-gnu/libgcc_s.so.1 (0x00007191ffcb5000)
+	libXext.so.6 => /lib/x86_64-linux-gnu/libXext.so.6 (0x00007191ffca1000)
+	libXfixes.so.3 => /lib/x86_64-linux-gnu/libXfixes.so.3 (0x00007191ff90f000)
+	libX11-xcb.so.1 => /lib/x86_64-linux-gnu/libX11-xcb.so.1 (0x00007191ffc9c000)
+	libxcb-dri3.so.0 => /lib/x86_64-linux-gnu/libxcb-dri3.so.0 (0x00007191ff908000)
+	libbsd.so.0 => /lib/x86_64-linux-gnu/libbsd.so.0 (0x00007191ff8f2000)
+	libmd.so.0 => /lib/x86_64-linux-gnu/libmd.so.0 (0x00007191ff8e3000)
+
+=== ROCm / VAAPI / Vulkan ===
+  Name:                    Intel(R) Xeon(R) Gold 6133 CPU @ 2.50GHz
+  Marketing Name:          Intel(R) Xeon(R) Gold 6133 CPU @ 2.50GHz
+  Vendor Name:             CPU                                
+  Name:                    Intel(R) Xeon(R) Gold 6133 CPU @ 2.50GHz
+  Marketing Name:          Intel(R) Xeon(R) Gold 6133 CPU @ 2.50GHz
+  Vendor Name:             CPU                                
+  Name:                    gfx1100                            
+  Marketing Name:          AMD Radeon RX 7900 XTX             
+  Vendor Name:             AMD                                
+      Name:                    amdgcn-amd-amdhsa--gfx1100         
+      Name:                    amdgcn-amd-amdhsa--gfx11-generic   
+error: can't connect to X server!
+libva info: VA-API version 1.20.0
+libva info: Trying to open /usr/lib/x86_64-linux-gnu/dri/radeonsi_drv_video.so
+libva info: Found init function __vaDriverInit_1_20
+libva info: va_openDriver() returns 0
+vainfo: VA-API version: 1.20 (libva 2.12.0)
+vainfo: Driver version: Mesa Gallium driver 25.2.8-0ubuntu0.24.04.4 for AMD Radeon RX 7900 XTX (radeonsi, navi31, LLVM 20.1.2, DRM 3.59, 6.11.0-17-generic)
+vainfo: Supported profile and entrypoints
+      VAProfileH264ConstrainedBaseline:	VAEntrypointVLD
+      VAProfileH264ConstrainedBaseline:	VAEntrypointEncSlice
+      VAProfileH264Main               :	VAEntrypointVLD
+      VAProfileH264Main               :	VAEntrypointEncSlice
+      VAProfileH264High               :	VAEntrypointVLD
+      VAProfileH264High               :	VAEntrypointEncSlice
+      VAProfileHEVCMain               :	VAEntrypointVLD
+      VAProfileHEVCMain               :	VAEntrypointEncSlice
+      VAProfileHEVCMain10             :	VAEntrypointVLD
+      VAProfileHEVCMain10             :	VAEntrypointEncSlice
+      VAProfileJPEGBaseline           :	VAEntrypointVLD
+      VAProfileVP9Profile0            :	VAEntrypointVLD
+      VAProfileVP9Profile2            :	VAEntrypointVLD
+      VAProfileAV1Profile0            :	VAEntrypointVLD
+      VAProfileAV1Profile0            :	VAEntrypointEncSlice
+      VAProfileNone                   :	VAEntrypointVideoProc
+
+=== artifacts / inputs ===
+ab2d1dd80e708a882d0f83504319f14356c5b8f3e34f93d3f1a5b5b37c45040c  /home/mark/ffmpeg-7.1/ffmpeg
+a18cc7b3275ab110ef47ecf62e7687073fee5363cf1df1c8f24839f6d93e7330  /home/mark/ffmpeg-7.1/ffprobe
+9dbbede3da5c56198faa884cde46f93bcb34008e1135af5da1add77aa65ac9c4  /home/mark/cuda-video-compat/cuda_shim/libcuda.so.1
+ba6c9137669b7c27c85fdca8d0279b805fd26b2e4dfdee5fdd7c2ea014197169  /home/mark/cuda-video-compat/cuda_shim/libnvcuvid.so.1
+e5dc6f00a047ea1471fb44debe562bb68c767c04dabb931660dc9f7b293b637c  /home/mark/cuda-video-compat/cuda_shim/src/backend_dispatch.cpp
+76f516fa6f24b5bacb538d7523a5eab2fde6e0a74d4d1ae50b2020cde623c329  /home/mark/cuda-video-compat/cuda_shim/src/cuvid_parser.cpp
+7c8b95b8e4c1874c3d7c9422e7b7346b9adf0413c9beceab625f3de356083e97  /home/mark/cuda-video-compat/cuda_shim/src/h264_direct_params.cpp
+864499bd924fb6ca137e2597cf013484a5deae4857243a4d72c7af2145ef8e9a  /home/mark/cuda-video-compat/cuda_shim/src/h264_picture_translate.cpp
+2d1473b804c39d7508071471947d5a5902b26085b82f3acb2763ed9690414b7b  /home/mark/cuda-video-compat/cuda_shim/src/hip_frame_mapper.cpp
+0c56ef70fe4b3a754a75b6a52957053f70b0dec4352a00aa0a5885ee63400993  /home/mark/cuda-video-compat/cuda_shim/src/libcuda.cpp
+2aa485a3b797f55009a88978a861077128205c29968bc2f0b1f8cfd4edc2443d  /home/mark/cuda-video-compat/cuda_shim/src/libnvcuvid.cpp
+c9bdb7dadecff78a216b54b6e9cf38c35af9d5f15c8efb3493705f9be750902e  /home/mark/cuda-video-compat/cuda_shim/src/vaapi_h264_decoder.cpp
+7592766cacea38fcbf705baa0c002afeaa362ddd423a7e92706913a7c26c68e4  /home/mark/cuda-video-compat/cuda_shim/src/vulkan_h264_decoder.cpp
+07835ca2b0f4ac0faa059d377af03a862d48cdef62537282b2551db66322b386  /home/mark/cuda-video-compat/tests/quick-verify/run_ffmpeg_compare.sh
+90a04ff18972b8b77681a95edffe009b9573dcd65712bd1ddc05c160febf2912  /home/mark/cuda-video-compat/testdata/h264/test_p_b_5.h264
+23aac8ef84555ad7d2ecea3b8b284c3bb665c574244fbff3b7275d696d9baa66  /home/mark/cuda-video-compat/testdata/h264/test_p_b_7.h264
+1733c6d5c42666908f16c0cb8d751feb9444cfdbcd12aa5a17cd919d237658d6  /home/mark/cuda-video-compat/testdata/h264/test_p_main.h264
+e748d5bd82dd4f52c4a332145919b32e17bec4ecf85f368706b0d7b7e799aa31  /home/mark/cuda-video-compat/testdata/h264/test_p_66.h264
+
+=== matrix ===
+BACKENDS=vaapi vk
+MODES=nvdec-safe nvdec-unsafe cuvid-cpu cuvid-cuda
+STREAMS=test_p_b_5.h264 test_p_b_7.h264 test_p_main.h264 test_p_66.h264
+TIMEOUT_SECONDS=60
+REQUIRE_NVDEC_ZEROCOPY=1
+EXTRA_HW_FRAMES=16

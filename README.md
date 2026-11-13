@@ -48,7 +48,7 @@
 - Vulkan loader；Vulkan Video 后端还需要 Mesa/RADV 与 `vk_video/*` 头
 - FFmpeg **7.1** 源码的构建产物：`libavutil.so` + 9 个解析对象（`h2645_parse` / `h264_ps` / `h2645_vui` / `h2645data` / `h264data` / `h264_parse` / `golomb` / `mathtables` / `refstruct`）
 - `nv-codec-headers`（CUDA / CUVID 头）
-- FFmpeg 7.1 可执行文件（仅跑宿主路径验证时需要 `h264_cuvid` / `h264_nvdec`）
+- FFmpeg 7.1 可执行文件（仅跑宿主路径验证时需要 `h264_cuvid` decoder 与 `nvdec` hwaccel；`h264_nvdec` 不是独立 decoder）
 
 FFmpeg、Mesa、nv-codec-headers 都**不随仓库分发**，按外部依赖处理；详见 [THIRD_PARTY.md](THIRD_PARTY.md) 和[验证手册](docs/verification/验证手册.md)。
 
@@ -74,9 +74,11 @@ make -C cuda_shim verify_kernel_read \
   HIPCC_EXTRA="--offload-arch=gfx1100"
 
 cd tests/quick-verify
-BACKENDS=vaapi ./run_kernel_read.sh
-BACKENDS=vaapi ./run_ffmpeg_compare.sh
+./run_kernel_read.sh
+FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 ```
+
+两个后端同级，完整宿主矩阵默认同时检查 `vaapi` 与 `vk`；定位时可临时用 `BACKENDS=vaapi` 或 `BACKENDS=vk`，但不能把另一种后端的失败视为可接受跳过。
 
 预期结果、完整实验套件与排障见[验证手册](docs/verification/验证手册.md)。
 
@@ -86,7 +88,7 @@ BACKENDS=vaapi ./run_ffmpeg_compare.sh
 |---|---|---|
 | 解码输出 | 显式 `DRM_FORMAT_MOD_LINEAR` | 规范要求 `VK_IMAGE_TILING_OPTIMAL` |
 | 显存共享 | surface → dma-buf → HIP 导入，真零拷贝 | image → GPU `vkCmdCopyImageToBuffer` → 线性 buffer → HIP 导入 |
-| 额外拷贝 | `h264_nvdec` 0 次；`h264_cuvid` 有 FFmpeg 自身的 D2D 拷贝 | 每帧 1 次 GPU 内拷贝 |
+| 额外拷贝 | `h264_nvdec` 零拷贝模式 0 次（需额外 surface；默认安全路径会被 FFmpeg 再拷贝）；`h264_cuvid` 有 FFmpeg 自身的 D2D 拷贝 | 每帧 1 次 GPU 内拷贝 |
 | 同步基线 | `vaSyncSurface` + HIP event | Vulkan semaphore/fence + HIP event |
 | 异步跨栈 fence | 未落地 | 未落地；需 sync_file/syncobj 与 ROCr 协同 |
 
@@ -102,10 +104,11 @@ BACKENDS=vaapi ./run_ffmpeg_compare.sh
 - VAAPI 真实解码 → HIP 读：I / I-P / I-P-B 各 30 帧逐字节一致。
 - 同步协议 S1–S8 通过；S8 1000 帧文件句柄稳定。
 - Vulkan Video 解码 → 拷贝 → 导出 → HIP 读：三类码流各 30 帧逐字节一致，无 fd/显存泄漏。
+- **2026-11-13 FFmpeg 宿主双后端基线**：四路码流 × VAAPI/VK × 四种宿主模式共 32 组合，修复后 32 PASS / 0 FAIL / 0 SKIP。两后端的 `nvdec-unsafe` 均达到 D2D=0 且逐字节一致；带 PTS 容器的双后端 8/8 组合通过。零拷贝要求 `h264_nvdec` 分配额外 surface（`-extra_hw_frames`）。完整证据见 [宿主基线](docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)和 [PTS 顺序验证](docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
 
 仍**未**完成的验收项：
 
-- FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）的正式像素/零拷贝验收；
+- FFmpeg 宿主结果扩展到真实业务应用、不同线程/队列配置和长时间运行；
 - 多流、seek/flush、动态分辨率、P010/奇数分辨率；
 - 异步跨栈 fence；
 - NPP 联合链路与编码链路（实验 D 输出异常，暂停）；

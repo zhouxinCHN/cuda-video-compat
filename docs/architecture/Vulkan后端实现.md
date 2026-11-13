@@ -1,9 +1,10 @@
 # Vulkan Video 后端实现与移植指南
 
-> 版本：v1.0（合并原《Vulkan Video 后端》《Vulkan Video 后端调研与实现 TODO》《Vulkan B 帧挂死调试留档》）
-> 文档日期：2026-11-12
-> 状态：**已在 AMD 验证机跑通**（RX 7900 XTX / RADV，VCN < 5）。四路码流（9/13/30/30 帧）在 Vulkan 与 VAAPI 两个后端均逐帧逐平面位精确，B 帧挂死已修复。
-> 职责：本文是 Vulkan 后端的实现、接缝、根因、验证与移植指南的唯一权威文档。能力评估与编码风险见 [Vulkan Video 方案评估](Vulkan_Video方案评估.md)；内存/同步语义见[内存与同步模型](内存与同步模型.md)；P0 结果见 [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md)。
+> 版本：v1.3
+> 文档日期：2026-11-13
+> 版本说明：v1.3 增加 `h264_nvdec` 参数集合成、显式失败和双后端宿主 32/32 结果；v1.2 标注后端同级及修复前基线。
+> 状态：**已在 AMD 验证机跑通**（RX 7900 XTX / RADV，VCN < 5）。四路码流（9/13/30/30 帧）在 Vulkan 与 VAAPI 两个后端均逐帧逐平面位精确；FFmpeg 宿主双后端矩阵 32/32，Vulkan `h264_nvdec` 通过从 CUVID 字段合成 SPS/PPS 接入，零拷贝需额外 surface。
+> 职责：本文是 Vulkan 后端的实现、接缝、根因、验证与移植指南的唯一权威文档。能力评估与编码风险见 [Vulkan Video 方案评估](Vulkan_Video方案评估.md)；内存/同步语义见[内存与同步模型](内存与同步模型.md)；宿主结果见 [FFmpeg 宿主双后端基线](../evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
 > 环境注意：验证脚本统一显式设置 `RADV_PERFTEST=video_decode`。已有探测显示部分 Mesa 版本默认暴露视频队列族，但尚未做同版本 A/B 对照；在复测前保留显式设置作为保守做法。
 
 ---
@@ -15,8 +16,8 @@ FFmpeg (h264_cuvid / h264_nvdec)
     │  dlopen + dlsym  libnvcuvid.so.1（符号不变）
     ▼
 libnvcuvid.cpp ─── DecoderBackend 接口（backend_dispatch 按 CUVID_SHIM_BACKEND 选后端）
-                     ├── VaapiBackend  → VaapiH264Decoder  (Tier-1, 默认)
-                     └── VulkanBackend → VulkanH264Decoder (Tier-2)
+                     ├── VaapiBackend  → VaapiH264Decoder  (同级候选 A)
+                     └── VulkanBackend → VulkanH264Decoder (同级候选 B)
 ```
 
 `libnvcuvid.cpp` 只依赖 `DecoderBackend` 接口，后端无关。切后端只影响 `make_backend()`，不碰 CUVID 表面那一层（`cuvidCreateDecoder` / `cuvidDecodePicture` / `cuvidMapVideoFrame64` 等符号全部保留）。
@@ -28,6 +29,7 @@ libnvcuvid.cpp ─── DecoderBackend 接口（backend_dispatch 按 CUVID_SHIM
 | `src/decoder_backend.h` | `DecoderBackend` 接口（initialize/decode/map_frame/coded_*/reset） |
 | `src/backend_dispatch.h` / `.cpp` | `make_backend()`：读 `CUVID_SHIM_BACKEND`（`vk`/`vaapi`），默认 vaapi |
 | `src/vulkan_h264_decoder.h` / `.cpp` | Vulkan Video 解码后端（核心新增） |
+| `src/h264_direct_params.h` / `.cpp` | 从 `CUVIDH264PICPARAMS` 合成最小 Annex-B SPS/PPS（h264_nvdec 路径） |
 | `src/vk_sequence_cache.h` | 进程级 SPS/PPS NAL 字节暂存（parser ↔ decoder 的接缝，前置 start code） |
 | `src/hip_frame_mapper.h` / `.cpp` | 新增 `map_fd()`：直接导入已导出的 dma-buf fd |
 | `src/cuvid_parser.cpp` / `.h` | 加 SPS/PPS stash + 双就绪后 `VkSequenceCache::store()` |
@@ -39,12 +41,16 @@ libnvcuvid.cpp ─── DecoderBackend 接口（backend_dispatch 按 CUVID_SHIM
 
 ### 3.1 SPS/PPS 从哪来
 
-VAAPI VLD 的 SPS/PPS 由 `cuvid_parser.cpp` 里的 `CuvidParser` 解析后填进每帧的 `CUVIDPICPARAMS.CodecSpecific.h264`，逐帧送到 `cuvidDecodePicture`。Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性给出，但 CUVID 宿主（FFmpeg nvdec/cuvid）只把 slice NAL 喂给 `cuvidDecodePicture`——SPS/PPS 根本不经过这个接口。
+Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性给出，但两条 FFmpeg 宿主路径提供信息的方式不同：
 
-解法：`VkSequenceCache`（进程级单槽缓存）。`CuvidParser` 看到 SPS/PPS 时 `store()`；`VulkanH264Decoder` 在 `ensure_session()` / `decode()` 里 `fetch()`。
+- **`h264_cuvid`**：`CuvidParser` 能看到 SPS/PPS。它把原始 NAL（保留 EPB）写入进程级单槽 `VkSequenceCache`，后端优先使用这份字节，profile/VUI/crop 保真。
+- **`h264_nvdec`**：FFmpeg 自己解析参数集，只通过 `cuvidDecodePicture` 交出解析后的 `CUVIDH264PICPARAMS` 和 slice 数据，shim parser 完全不参与。`VkSequenceCache` 因此为空，旧实现会在 `decode()` 里返回成功但从未建立 session，map 时表现为 `CUDA_ERROR_INVALID_VALUE`。
 
-- 代价：`cuvid_parser.cpp` 需要加两段 `store()`（见 §5）。parser 与 decoder 之间唯一通道是宿主的 `pfnSequenceCallback`，无直接句柄，进程级缓存是最小侵入的接缝。
-- 局限：单槽只支撑单流单解码器（FFmpeg 单实例场景够用）。多流需按 `CUvideodecoder` 键控，留到 P1。
+现在 `h264_nvdec` 的兜底是 `h264_direct_params.cpp`：从 `CUVIDH264PICPARAMS` 构造一份最小 Annex-B SPS/PPS，存放在 decoder 实例内。后端先尝试原始 cache，失败后用合成参数集。合成字段限制见 §3.6。
+
+- 进程级 cache 单槽只支撑 `h264_cuvid` 单流；多流仍需按 `CUvideodecoder` 键控（P1）。
+- `h264_nvdec` 的合成参数集按 decoder 保存，不使用进程级单槽。
+- 没有参数集时 `decode()` 必须返回明确错误，不能伪成功。
 
 ### 3.2 懒建 session
 
@@ -52,7 +58,7 @@ VAAPI VLD 的 SPS/PPS 由 `cuvid_parser.cpp` 里的 `CuvidParser` 解析后填�
 
 - `initialize()` 只校验参数 + 建 Vulkan instance/device/队列（不依赖 SPS/PPS）；
 - `ensure_session()` 在 SPS/PPS 就绪后建 video session / session parameters / 图像池 / 导出 buffer / 同步对象；
-- `decode()` 每次先 `ensure_session()`，若 SPS/PPS 仍未到则返回成功并静默跳过（等 parser 喂流）。
+- `decode()` 每次先准备参数集并调用 `ensure_session()`；`h264_nvdec` 会从当前 `CUVIDPICPARAMS` 合成参数集。仍无法建 session 时返回 `CUDA_ERROR_NOT_SUPPORTED`，不再静默成功。
 
 这使后端对宿主的建 decoder→喂流顺序鲁棒。
 
@@ -63,7 +69,7 @@ VAAPI VLD 的 SPS/PPS 由 `cuvid_parser.cpp` 里的 `CuvidParser` 解析后填�
 1. **双队列**：decode 队列族无 TRANSFER，copy 必须在 transfer 队列族；图像/缓冲 `CONCURRENT` 共享 + sync2 semaphore 桥接。
 2. **`pSetupReferenceSlot` 每帧非 NULL**（含 B 帧，用临时 DPB slot，解码后回收）。
 3. **DPB 分离**：DPB 图只带 `VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR`，不混 DST（RADV `radv_video.c`）。
-4. **Annex-B + start code**：码流 buffer 前补 `00 00 00 01`，`pSliceOffsets[0]=0`。
+4. **Annex-B + start code**：h264_cuvid 传入裸 NAL，需要补 `00 00 00 01`；h264_nvdec 的 `pBitstreamData` 已由 FFmpeg 组装为 Annex-B，不能再重复补。两条路径都要求当前 P0 单 slice，多 slice 显式拒绝。
 5. **导出链路**：`vkCmdCopyImageToBuffer`（barrier 转 `TRANSFER_SRC_OPTIMAL`，逐平面 Y/UV）→ `vkGetMemoryFdKHR(OPAQUE_FD)` → HIP import。
 6. **SPS/PPS → Std 转换**：`fill_sps_std` / `fill_pps_std`（含 scaling list 8x8 顺序 `{0,3,1,4,2,5}`、designated-initializer 字段序、`aspect_ratio_idc` cast）。
 7. **主机同步**：`vkWaitForFences(copyFence)` 后再导出/HIP 读；异步 sync_file 桥接属并行项，不阻塞。
@@ -72,7 +78,7 @@ VAAPI VLD 的 SPS/PPS 由 `cuvid_parser.cpp` 里的 `CuvidParser` 解析后填�
 
 `decode()` 收到的 `CUVIDPICPARAMS.pBitstreamData` 是单 slice NAL（FFmpeg nvdec 每次送一个 slice）。用 FFmpeg `ff_h2645_packet_split` 包住它 → 取 slice NAL → `parse_slice_header`（自写，P0 版移植）→ `ff_h264_init_poc` 算 POC → 填 `StdVideoDecodeH264PictureInfo`。
 
-`CUVIDPICPARAMS` 里 SPS/PPS 派生字段（`log2_max_frame_num_minus4` 等）这里不依赖——直接从 `VkSequenceCache` 重新 parse SPS/PPS 拿 `SPS*`/`PPS*`（单流下便宜、无状态漂移）。
+`CUVIDPICPARAMS` 里 SPS/PPS 派生字段（`log2_max_frame_num_minus4` 等）这里不依赖——两条来源最终都会重新 parse 成 `SPS*`/`PPS*`。原始 cache 保留完整参数集；合成路径只有 CUVID 可见字段。
 
 ### 3.5 map_frame 与 fd 所有权
 
@@ -80,16 +86,34 @@ VAAPI VLD 的 SPS/PPS 由 `cuvid_parser.cpp` 里的 `CuvidParser` 解析后填�
 
 `HipFrameMapping::map_fd()` 是 Vulkan 专用入口：跳过 VAAPI 的 `VADRMPRIMESurfaceDescriptor`，直接导入已导出的 fd，并假定 Y/UV 连续（UV offset = pitch × height，正是 `vkCmdCopyImageToBuffer` 写出的布局）。
 
+### 3.6 `h264_nvdec` 参数集合成与限制
+
+`h264_direct_params.cpp` 写出的 SPS/PPS 由以下字段构成：
+
+- SPS：profile（按 CABAC/8x8/缩放矩阵推断）、level（按宏块规模推断）、参考帧数、frame_num/POC 位数、POC type 0/2、MB 尺寸、frame_mbs_only、direct8x8；无 crop、无 VUI。
+- PPS：熵编码、POC present、默认参考数、加权预测、QP 偏移、deblocking/constrained/redundant、transform8x8；scaling matrix 必须为默认值。
+
+显式限制：
+
+1. 仅 4:2:0/8-bit、progressive、POC type 0/2；
+2. SPS/PPS ID 固定 0；
+3. 非默认缩放矩阵无法可靠还原，直接返回不支持；
+4. crop、VUI、profile constraint、精确 level 不可恢复；
+5. 单 slice；多 slice 当前返回不支持，不能只解第一片；
+6. 序列变化后不会重建 session，`reconfigure` 仍是 stub。
+
+这些限制写成代码中的显式失败，不允许静默输出错误帧。P0 四路码流已通过，更复杂的码流需扩展 ABI 旁路或宿主接口。
+
 ## 4. 明确不在本次交付范围
 
 | # | 项 | 说明 |
 |---|---|---|
 | 1 | `cuvidReconfigureDecoder` | 当前 stub（与 VAAPI 后端一致），Vulkan 需销毁重建 session，未接 |
 | 2 | 异步同步（sync_file 桥接） | 首期主机同步够用；异步桥接需 ROCm 协同，不阻塞 |
-| 3 | 多流 / seek / 动态分辨率 | 单流单序列已覆盖；多流需按 decoder 键控 `VkSequenceCache` |
+| 3 | 多流 / seek / 动态分辨率 | 单流单序列已覆盖；多流需按 decoder 键控 `VkSequenceCache` 与合成参数集 |
 | 4 | HEVC/VP9/AV1 | 本次只有 H264（对齐 P0 范围）；Std 转换与 slice 解析按 codec 扩展 |
 | 5 | transfer-only 队列族导出 | 现走 compute 队列族；SDMA 路径的多平面 pitch 另有上游疑点 |
-| 6 | `h264_nvdec` 零拷贝、FFmpeg 宿主双路径正式验收 | P0 已验证 shim 通路，宿主双路径仍未验收 |
+| 6 | 多 slice / crop / VUI / POC type 1 / 非默认缩放矩阵 | 当前显式不支持；P0 四路单 slice 已通过 |
 
 ## 5. 接缝实现
 
@@ -294,8 +318,9 @@ VkFence 完成
 
 ## 10. 相关源码线索
 
-- `cuda_shim/src/vulkan_h264_decoder.cpp`：`ensure_session()`（会话内存所有权）、`decode()`（参考槽、双队列、导出拷贝）、`parse_slice_header()`。
-- `cuda_shim/src/vulkan_h264_decoder.h`：`session_mems_`、`dpb_images_`、`free_dpb_slots_`、`outputs_`、`exports_`、`device_lost_`、`decode_query_`。
+- `cuda_shim/src/vulkan_h264_decoder.cpp`：`ensure_session()`（会话内存所有权）、`decode()`（参数集来源、参考槽、双队列、导出拷贝）、`parse_slice_header()`。
+- `cuda_shim/src/vulkan_h264_decoder.h`：`session_mems_`、`dpb_images_`、`free_dpb_slots_`、`outputs_`、`exports_`、`direct_sps_/direct_pps_`、`device_lost_`、`decode_query_`。
+- `cuda_shim/src/h264_direct_params.cpp`：`CUVIDH264PICPARAMS` → 最小 Annex-B SPS/PPS；不支持的字段组合显式返回 false。
 - `cuda_shim/src/vaapi_h264_decoder.cpp`：VAAPI 后端（同样位精确）。
 - `cuda_shim/tests/verify_kernel_read.cpp`：`CUVID_DUMP_NV12_DIR` 支持点。
 - Mesa（只读）：`src/amd/vulkan/radv_video.c`、`src/amd/vulkan/meta/radv_meta_copy.c`、`src/amd/common/ac_vcn_dec.h`。

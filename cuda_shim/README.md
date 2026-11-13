@@ -3,7 +3,7 @@
 CUDA 驱动 API 与 CUVID 解码 API 的兼容层：
 
 - `libcuda.so.1`：设备/上下文/内存/流/事件映射到 HIP；kernel launch、module/JIT、GL interop 等返回明确的不支持错误。
-- `libnvcuvid.so.1`：CUVID parser、decoder、`cuvidMapVideoFrame64` / `cuvidUnmapVideoFrame64`；默认 VAAPI 后端，设置 `CUVID_SHIM_BACKEND=vk` 切到 Vulkan Video 后端。
+- `libnvcuvid.so.1`：CUVID parser、decoder、`cuvidMapVideoFrame64` / `cuvidUnmapVideoFrame64`；当前运行时默认 VAAPI，设置 `CUVID_SHIM_BACKEND=vk` 切到 Vulkan Video 后端。该实现默认值不代表方案选型；两个后端仍是同级候选，等待正式决策。
 
 实现与约束见：
 
@@ -70,6 +70,7 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 
 - 解码正确性、B 帧根因与验证结果以 [Vulkan 后端实现 §8](../docs/architecture/Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv) 和 [P0 闭环验证结果](../docs/evidence/P0闭环验证结果_2026-11-12.md) 为准。
 - 四路验证码流中 `test_p_b_5` / `test_p_b_7` 含 B 帧，`test_p_main` / `test_p_66` 是无 B 帧对照。
-- Vulkan 后端的 `h264_nvdec`、多流、seek/flush、动态分辨率仍未验收。
+- FFmpeg 宿主矩阵 2026-11-13 修复后为 32/32 PASS：两后端 `nvdec-unsafe` 均为 D2D=0 且像素一致。零拷贝需要 `-extra_hw_frames`，shim 接受最多 64 个 decode surface。详见[宿主基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
+- Vulkan 的 `h264_nvdec` 会从 `CUVIDH264PICPARAMS` 合成最小 SPS/PPS；多 slice、VUI/crop、非默认缩放矩阵和 POC type 1 尚未覆盖。多流、seek/flush、动态分辨率仍未验收；两个后端同级。
 - 异步跨栈 fence 未实现；当前是主机同步基线。
 - 本目录的测试是可行性验证，不是生产验收。
