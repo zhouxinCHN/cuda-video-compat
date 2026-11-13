@@ -1,0 +1,39 @@
+=== NPP shim symbols ===
+00000000000011b0 T nppiResizeSqrPixel_8u_C1R
+00000000000011c0 T nppiYCbCr420_8u_P2P3R
+00000000000012f0 T nppiYCbCr420_8u_P3P2R
+0000000000001100 T nppGetLibVersion
+
+=== FFmpeg filter ===
+ ... scale_npp         V->V       NVIDIA Performance Primitives video scaling and format conversion
+
+=== libavfilter NPP deps ===
+	libnppig.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppig.so.11 (0x00007de0eb477000)
+	libnppicc.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppicc.so.11 (0x00007de0eaeef000)
+
+=== NPP headers ===
+libnppicc12:amd64	12.0.1.104~12.0.1-4build4
+libnppig12:amd64	12.0.1.104~12.0.1-4build4
+nvidia-cuda-dev:amd64	12.0.146~12.0.1-4build4
+
+=== GPU ===
+b1:00.0 VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi 31 [Radeon RX 7900 XT/7900 XTX/7900M] (rev c8)
+
+=== source / artifacts ===
+708e3f34e3aa49736cb232e2a8aec25cf38105a612b918e7a6eb704e02aef75d  npp_shim/src/nppc_core.cpp
+6c2751bd988245d6954e9c973b0cf2770fb4f5046ea76ae9a5e13178e593b2fe  npp_shim/src/npp_common.h
+1f5c6deebdfba4e2dfe6a5927036589a99935a957d3ce5e46c7efdb4aca15e65  npp_shim/src/npp_gpu_bridge.h
+2b4cf08d00ad70ed4025ffd76658510c7b6f23bb480ac409f26c6170431815e7  npp_shim/src/nppicc_color.cpp
+93cbabaaaa694a6a30174774405fcc1d9b540dd482d0bb7665fca3257e94da26  npp_shim/src/nppicc_color_hip.cpp
+04d7153309edb27e0096aa44ae0ac6bffa9f234ead7cc2c2e0680121a04f050d  npp_shim/src/nppig_resize.cpp
+029340343e31e9dbca07b8b87a0a5b160a75df4b05832f8232e16c402b6c1ae6  npp_shim/src/nppig_resize_hip.cpp
+a0be7320cc22378c859f3b08561bd7ae2a700100a7379d0a35ff7bc18c321028  npp_shim/src/npp_placeholder.cpp
+e537de96608869fbf02320182840f4f306ab5846b6ff8f82a9124feb553acbf5  tests/npp/npp_probe_gpu_cuda.cpp
+0215e514cce84fb9f83bc5172de589896dbbad4f5610e434ba996ad7bf802c3d  tests/npp/npp_probe_gpu_hip.cpp
+d8ce978ffcf734b39487970b24bbb298118871fd3d844b9fbb7f65685f98659e  tests/npp/npp_stage_a_probe.cpp
+ee69ede4d741ccfb5219363125e239dcf789377db740b6b8d74b15783910c945  tests/npp/compare_stage_a.py
+a2c3bf55fd0c88e3e263c10ad19946509ec72583791c89c3212ef1d5c1c9ff27  npp_shim/libnppc.so.11
+d25150e31ea38f35b67081da4c29114b1d8b69d6d3df67b18042ef9dbc920e6f  npp_shim/libnppicc.so.11
+475317ac27c0c4a55f9e3585d1c081900615ab0f01d2db86b6edd32a1238f61a  npp_shim/libnppidei.so.11
+062d1cf7b9c84cfac73be0a8f390a9e0b4283a55f4b6dfaaa03fc11403346de9  npp_shim/libnppif.so.11
+944f6e6d36ef527d814cb6b13ceacc0f67a5846853ba5fe5b9819669e54fb07d  npp_shim/libnppig.so.11

@@ -40,6 +40,7 @@
 
 - [FFmpeg 宿主双后端基线（2026-11-13）](evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)：四路码流 × VAAPI/VK × 四种宿主模式的 32 组合结果；两个后端同级，含失败项与复现命令。
 - [FFmpeg PTS / 显示顺序验证（2026-11-13）](evidence/FFmpeg_PTS顺序_2026-11-13/README.md)：带 PTS/DTS 的 30 帧容器输入，双后端八种模式严格比较输出时间戳序列。
+- [NPP Stage A 本地集成（2026-11-13）](evidence/NPP_StageA_本地集成_2026-11-13/README.md)：真实头文件构建、FFmpeg `scale_npp` 接入、双后端颜色转换联合链路；NVIDIA golden 仍待生成。
 
 ## 阅读建议
 

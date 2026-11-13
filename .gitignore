@@ -42,6 +42,13 @@ tests/sync/verify_sync
 tests/sync/verify_semaphore_async
 tests/vulkan-video/basic/verify_vulkan_video
 tests/vulkan-video/full/verify_vulkan_video_full
+tests/npp/npp_stage_a_probe
+
+# NPP shim shared objects, object files and generated Stage A probe output
+npp_shim/build/
+npp_shim/libnpp*.so*
+tests/npp/build/
+tests/npp/npp-stage-a-output/
 
 # generated reference media (recreate with the Makefiles / testdata README)
 tests/**/ref_*.yuv

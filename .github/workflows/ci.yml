@@ -20,6 +20,7 @@ jobs:
           python3 -m py_compile \
             scripts/check_links.py \
             benchmarks/scripts/collect_ffmpeg_api.py \
+            tests/npp/compare_stage_a.py \
             tests/zerocopy/run_hip_encode_compare.py
 
       - name: Check Markdown links

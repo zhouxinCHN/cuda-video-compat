@@ -9,6 +9,7 @@
 | `sync/` | S1–S8 同步协议、HIP semaphore / DRM syncobj 探测 | AMD GPU |
 | `vulkan-video/` | Vulkan Video 能力探测（basic/full） | AMD GPU + RADV |
 | `quick-verify/` | mapped pointer kernel 读取、FFmpeg 双路径像素/零拷贝脚本 | AMD GPU + FFmpeg 7.1 |
+| `npp/` | NPP Stage A 参考/候选探针（3 函数、NN/linear/cubic）与逐字节比较 | NVIDIA NPP 或 AMD NPP shim + 授权 NPP 头文件 |
 
 ## 常用命令
 
@@ -29,7 +30,13 @@ make -f verify_vk_decode_to_hip.make run-b
 cd tests/sync
 make run
 
-# 5. Quick Verify（AMD）
+# 5. NPP Stage A（NVIDIA 生成 golden / AMD shim 生成 candidate）
+# 详见 tests/npp/README.md；必须先提供授权 NPP 头文件
+make -C tests/npp GPU_RUNTIME=cuda NPP_INCLUDE_DIR=/path/to/cuda/include \
+  CUDA_LIB_DIR=/path/to/cuda/lib64 NPP_LIB_DIR=/path/to/cuda/lib64
+(cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden)
+
+# 6. Quick Verify（AMD）
 cd tests/quick-verify
 ./run_kernel_read.sh
 
@@ -44,6 +51,8 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 2026-11-12 AMD 验证机：P0 双后端四路码流全部通过，`verify_kernel_read` errors=0，`make check` / `check_func` / parser / session 全 PASS。数字与边界详见 [P0 闭环验证结果](../docs/evidence/P0闭环验证结果_2026-11-12.md)。
 
 2026-11-13 FFmpeg 宿主矩阵修复后：32 RUN / 32 PASS / 0 FAIL / 0 SKIP，双后端 `nvdec-unsafe` 均 D2D=0 且像素一致。结果与原始日志见 [FFmpeg 宿主双后端基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。另有带 PTS 的 30 帧 MP4 严格顺序验证，双后端共 8 种模式 8 PASS / 0 FAIL，见 [PTS 顺序验证](../docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
+
+NPP Stage A：真实 NPP 头文件下 shim 构建成功，独立 FFmpeg `scale_npp` 已加载；P2P3/P3P2 在双解码后端逐字节一致。resize 三算法尚未取得 NVIDIA golden，详见 [NPP Stage A 本地集成](../docs/evidence/NPP_StageA_本地集成_2026-11-13/README.md)。
 
 ## 注意
 

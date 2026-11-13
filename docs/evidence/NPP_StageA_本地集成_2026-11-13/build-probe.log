@@ -1,0 +1,5 @@
+make: 进入目录“/home/mark/cuda-video-compat/tests/npp”
+g++ -std=c++17 -O2 -Wall -Wextra -I/usr/include -I/usr/include -c npp_stage_a_probe.cpp -o build/npp_stage_a_probe.o
+/opt/rocm-7.2.4/bin/hipcc -std=c++17 -O2 -Wall -Wextra -I/usr/include -I/usr/include  -c npp_probe_gpu_hip.cpp -o build/npp_probe_gpu.o
+g++ build/npp_stage_a_probe.o build/npp_probe_gpu.o -o npp_stage_a_probe -L/opt/rocm-7.2.4/lib -Wl,-rpath,/opt/rocm-7.2.4/lib -Wl,-rpath,/home/mark/cuda-video-compat/npp_shim -L../../npp_shim -lnppc -lnppig -lnppicc -lnppidei -lnppif -lamdhip64
+make: 离开目录“/home/mark/cuda-video-compat/tests/npp”

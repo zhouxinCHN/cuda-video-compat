@@ -21,17 +21,21 @@
 │   ├── architecture/          # 架构、方案、API 映射、内存模型
 │   ├── verification/          # 验证手册（环境/构建/实验/排障）
 │   └── evidence/              # 结果、日志与原始数据
-├── cuda_shim/                 # 兼容层本体：libcuda + libnvcuvid
+├── cuda_shim/                 # 解码兼容层：libcuda + libnvcuvid
 │   ├── include/               # CUDA 类型映射
 │   ├── src/                   # VAAPI / Vulkan Video 后端、DMA-BUF 映射
 │   ├── tests/                 # 组件内测试（符号、会话、parser、kernel 读取）
 │   ├── Makefile
 │   └── CMakeLists.txt
+├── npp_shim/                  # NPP Stage A：libnppc/libnppig/libnppicc + 占位库
+│   ├── src/                   # HIP resize / NV12↔YUV420P 与核心占位
+│   └── Makefile
 ├── tests/
 │   ├── parser/                # FFmpeg parser 复用、NPP 参考输出
 │   ├── zerocopy/              # VAAPI / Vulkan Video → HIP 端到端像素校验
 │   ├── sync/                  # 同步协议与异步 fence 现状探测
 │   ├── vulkan-video/          # Vulkan Video 能力探测（basic / full）
+│   ├── npp/                   # NPP Stage A 参考/候选探针与逐字节比较
 │   └── quick-verify/          # mapped pointer kernel 读取、FFmpeg 双路径脚本
 ├── benchmarks/                # NVDEC / VAAPI / NPP / VPP 对比测试
 ├── testdata/h264/             # 小体积 H.264 测试码流
@@ -111,7 +115,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 - FFmpeg 宿主结果扩展到真实业务应用、不同线程/队列配置和长时间运行；
 - 多流、seek/flush、动态分辨率、P010/奇数分辨率；
 - 异步跨栈 fence；
-- NPP 联合链路与编码链路（实验 D 输出异常，暂停）；
+- NPP 联合链路：Stage A shim、独立 FFmpeg `scale_npp`、双后端 P2P3/P3P2 已打通并逐字节一致；resize 的 NN/linear/cubic 尚无 NVIDIA golden，最终覆盖全部 interp_algo。FFmpeg 将 libnpp 标记 nonfree，发布路径未决；编码链路（实验 D 输出异常，暂停）；
 - 目标平台、1/8 路 30 分钟稳定性、真实业务性能；
 - P0 原始运行命令、stdout/环境版本仍需归档。
 

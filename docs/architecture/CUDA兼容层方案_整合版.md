@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.2
+> 版本：v4.5
 > 文档日期：2026-11-13
 > 技术事实截止：2026-11-12
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -36,7 +36,8 @@
 | 真实解码→HIP 读底层数据通路 | AMD-PoC | 实验 C 已闭合；不代表 CUVID shim 或 FFmpeg 宿主已验收 |
 | DRM sync_file 跨栈异步同步 | 设计假设 | 基础原语可用，真实跨引擎 fence 传递/排序/异常未完成 |
 | CUVID shim 数据通路 | AMD-PoC | 双后端四路码流各 82/82 逐字节；`verify_kernel_read` errors=0；FFmpeg 宿主矩阵修复后 32/32 PASS，含双后端零 D2D 与严格 PTS |
-| NPP NVIDIA 参考基线 | NVIDIA 参考机已验证 | 3 个 P0 函数参考输出已固化；AMD shim 未实现 |
+| NPP NVIDIA 参考基线 | NVIDIA 参考机已验证 | 3 个 P0 函数旧参考输出已固化；Stage A 新探针和 AMD HIP 实现已落地。P2P3/P3P2 双后端逐字节通过；resize NVIDIA golden 尚待生成 |
+| NPP AMD Step A 集成 | AMD-PoC（部分） | 真实 NPP 头文件下 shim 构建成功；独立 nonfree FFmpeg 已加载 `scale_npp`；FFmpeg libnpp 被标记 nonfree，发布方案未决 |
 | Vulkan Video 后端 | AMD-PoC | 解码→拷贝→导出→HIP 读取通过，已接入 CUVID；h264_nvdec 使用合成 SPS/PPS；与 VAAPI 同级候选 |
 | 目标平台 | 待验证 | AMD 结果不能替代实际交付平台验收 |
 
@@ -44,7 +45,7 @@
 
 | 环境 | 硬件 | 软件 | 用途与限制 |
 |---|---|---|---|
-| **AMD 验证机** | Radeon RX 7900 XTX，gfx1100/Navi31，24GB | Ubuntu 24.04.2；kernel 6.11.0-17；ROCm 7.2.4 / HIP 7.2.53211；Mesa 25.2.8；libva 2.20.0（VA-API 1.20）；FFmpeg 7.1 官方源码自编译，含 `h264_cuvid`、`nvdec` hwaccel | 实验 C/E、P0、Vulkan/HIP 数据通路、FFmpeg 宿主 32 组合；不含 NPP shim，也不代表目标平台 |
+| **AMD 验证机** | Radeon RX 7900 XTX，gfx1100/Navi31，24GB | Ubuntu 24.04.2；kernel 6.11.0-17；ROCm 7.2.4 / HIP 7.2.53211；Mesa 25.2.8；libva 2.20.0（VA-API 1.20）；FFmpeg 7.1 官方源码自编译，含 `h264_cuvid`、`nvdec` hwaccel | 实验 C/E、P0、Vulkan/HIP 数据通路、FFmpeg 宿主 32 组合；NPP Stage A 仅本地自检，未接入 FFmpeg |
 | **NVIDIA 参考机** | GeForce RTX 4060，Compute Capability 8.9 | Ubuntu 22.04.5；驱动 595.99.02；CUDA Driver API 13020；CUDA Runtime/NPP 11.5（NPP 11.5.1.107） | 3 个 P0 NPP 函数参考输出；不是 AMD 交付环境 |
 | **历史格式对比机** | NVIDIA RTX 4060；AMD RX 9070（VCN5） | 精确驱动和构建环境未完整记录 | 仅作历史格式能力参考；不得与 P0 环境混写 |
 
@@ -101,7 +102,7 @@
 | 解码格式 | H.264、4:2:0、8-bit、NV12 | 不扩展至其他 codec、位深或色度格式 |
 | 码流能力 | I/P/B、DPB、crop、seek/flush、动态分辨率、长期参考 | 场/MBAFF 遇到时明确返回不支持；不静默输出错误帧 |
 | CUVID API | 22 个动态加载符号形态；FFmpeg 直接使用的 9 个功能接口 | 清单见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
-| NPP API | `nppiResizeSqrPixel_8u_C1R`、`nppiYCbCr420_8u_P2P3R`、`nppiYCbCr420_8u_P3P2R` 及必要 nppc | CUDA/NPP 11.5 ABI；与 NVIDIA 11.5.1.107 参考逐字节一致 |
+| NPP API | `nppiResizeSqrPixel_8u_C1R`、`nppiYCbCr420_8u_P2P3R`、`nppiYCbCr420_8u_P3P2R` 及必要 nppc | CUDA/NPP 11.5 ABI；resize 插值先做 FFmpeg 核心 cubic/NN/linear，再扩到全部 FFmpeg 选项和 NPP flags；与 NVIDIA 11.5.1.107 逐字节一致 |
 | libcuda | FFmpeg 解码与 NPP 联合链路所需内部支撑 | 不作为独立完整 CUDA driver API 交付 |
 | 数据通路 | LINEAR surface + DMA-BUF + HIP 导入，同进程 | 运行时校验 plane、pitch、offset、modifier 和 size |
 | 同步 | `vaSyncSurface` + HIP 同步的主机同步基线 | DRM 异步 fence 不属于 P0 |
@@ -163,7 +164,7 @@
 | `VulkanH264Decoder` | Vulkan Video 解码、拷贝、导出 | `cuda_shim/src/vulkan_h264_decoder.cpp` | H.264 数据通路可用；多流/reconfigure 未覆盖 |
 | `CuvidParser` | SPS/PPS/slice 解析、DPB、显示序 | `cuda_shim/src/cuvid_parser.cpp` | I/P/B 四路码流通过；多流/seek/crop 待补 |
 | `HipFrameMapping` | VAAPI/VK 导出 fd → HIP 导入、布局门禁 | `cuda_shim/src/hip_frame_mapper.cpp` | VAAPI/VK 路径均通过；fd 所有权已处理 |
-| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | 尚未实现 | ❌ 无源码；NVIDIA 参考基线已建立 |
+| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | Stage A HIP 实现和 5 个 SONAME 库已落地 | ⚠️ 本地色度自检通过；NVIDIA golden、FFmpeg 链接和联合链路未通过 |
 
 ### 2.2 零拷贝可行性实验
 
@@ -740,7 +741,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 
 | 函数 | 所属库 | 实现要点 |
 |---|---|---|
-| `nppiResizeSqrPixel_8u_C1R` | `libnppig.so.11` | 每线程一目标像素；反向映射源坐标 + 双线性插值；处理 ROI/step/pitch |
+| `nppiResizeSqrPixel_8u_C1R` | `libnppig.so.11` | 每线程一目标像素；按 `interp_algo` 做反向映射与滤波；阶段 A 为 cubic/NN/linear，最终覆盖全部 NPP 插值模式；处理 ROI/step/pitch |
 | `nppiYCbCr420_8u_P2P3R` | `libnppicc.so.11` | NV12（2 plane）→ YUV420（3 plane）；UV 去交织 |
 | `nppiYCbCr420_8u_P3P2R` | `libnppicc.so.11` | YUV420（3 plane）→ NV12（2 plane）；UV 交织 |
 | `nppc` 初始化/stream | `libnppc.so.11` | `nppGetStreamContext` / `nppSetStream` / `nppGetVersion`；用 HIP 设备属性填 `NppStreamContext` |
@@ -759,6 +760,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 | 验证项 | 方法 | 通过标准 |
 |---|---|---|
 | 3 函数基础正确性 | 零值、极值、固定种子随机值、渐变、棋盘格输入 | 所有输出 plane 逐像素比较；以逐字节一致为目标，差异不得仅以“视觉效果接近”放行 |
+| Resize 插值分阶段 | 先 cubic/NN/linear，再 FFmpeg cubic2p/Lanczos/super，最后 NPP 全部 interpolation flags | 每个已声明算法分别建立 NVIDIA golden；未实现算法显式返回不支持，不能静默换算法 |
 | Resize 坐标与舍入 | 放大、缩小、非整数比例、奇数尺寸、常见及非对齐 ROI | 坐标、舍入及边缘结果与参考一致；架构相关差异须列出模式、差值和评审结论 |
 | 平面转换与 ROI | `P2P3/P3P2` 检查 Y/UV plane 顺序、ROI 原点、宽高、src/dst step、非连续内存 | 输出 plane、ROI 外保护区域和 padding 符合预期；不得越界写或破坏相邻数据 |
 | stream 与异步 | 默认/非默认 stream、事件等待、连续提交 | 无提前读取、跨流竞争和结果不稳定；重复执行一致 |
@@ -767,10 +769,15 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 
 ### 6.5 当前边界
 
-- NVIDIA 参考基线已建立（RTX 4060 + NPP 11.5.1.107，3 个函数输出与 SHA256 归档）。
-- AMD NPP shim **尚未写实现代码**，P0 联合链路未通过。
+- NVIDIA 参考基线已建立（RTX 4060 + NPP 11.5.1.107，3 个函数输出与 SHA256 归档）；现有 resize golden 只有 8×8、nearest 样例，不足以覆盖阶段 A。
+- AMD NPP Stage A shim 已实现 NN/linear/cubic 三个 resize 模式及两种 4:2:0 平面转换；真实 CUDA/NPP 12 头文件下构建成功，独立 FFmpeg 已加载 `scale_npp`。
+- FFmpeg 联合链路：P2P3/P3P2 在 VAAPI/Vulkan 两个解码后端均与软件转换逐字节一致；resize 模式只完成功能烟测，尚无 NVIDIA golden。
+- **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，当前集成本地构建不可再分发。发布/客户交付路径需要法务和产品重新决策。
+- 头文件版本为 CUDA 12.0.1.104，目标 NPP 11.5.1.107 的最终 ABI/golden 复核未完成。
+- `libnppc` 当前只提供 `nppGetLibVersion` 链接探测；完整 stream/version 接口待后续增量。
 - 3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；ROI、step、padding、stream、错误语义需补齐。
-- NPP 头文件是专有许可，采用路线 A（用户自带授权头文件，发布物只含 `.so`）。
+- resize 插值范围最终为全部 NPP interpolation flag；实施顺序是 FFmpeg 核心 cubic/NN/linear → FFmpeg 其余选项 → NPP 全部 flags。未实现模式显式失败。
+- NPP 头文件是专有许可，采用路线 A（用户自带授权头文件，发布物只含 `.so`）；当前开发机没有这些头文件/NPP 库，构建前需由使用方提供。
 
 ---
 
@@ -1051,7 +1058,7 @@ Mesa
 | **第 0 步：范围与底层能力确认** | 范围/验收口径；AMD 验证机 HIP/VAAPI 共存、DMA-BUF、LINEAR NV12、实验 C/E | 范围确认；底层能力门禁通过 | ✅ 已通过，不代表 P0 整体通过 |
 | **第 1A 步：真实解码→HIP 读** | 同进程 libva 解码→LINEAR surface→DMA-BUF→HIP 读取的程序与日志 | 多帧 NV12 各 plane 逐字节一致；无 fd/内存泄漏 | ✅ 已由实验 C 闭合 |
 | **第 1B 步：CUVID shim 与 FFmpeg 集成** | 真实 CUVID decoder/parser/map/unmap；`h264_cuvid`、`h264_nvdec` 双路径 | 两条路径多帧像素、帧数、显示顺序、pitch、flush、资源检查通过；`h264_nvdec` 证明 HIP 直接读取像素正确 | ⚠️ P0 四路双后端 32/32 通过；多 slice、真实业务配置和长稳待补 |
-| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 | ❌ 待完成 |
+| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 | ⚠️ FFmpeg 与双后端 P2P3/P3P2 联合链路逐字节通过；resize NVIDIA golden、11.5 ABI、nonfree 发布路径待完成 |
 | **P1：复杂场景与交付验证** | crop、seek/flush、动态分辨率、长期参考、用户应用、异常恢复、安全、部署、生产性能 | 按 [§1.4](#14-p0-技术范围与验收边界) 范围通过；P010、其他 codec/NPP/API 仅在新增需求评审后扩展 | ❌ 未开始 |
 
 补充要求：
@@ -1127,7 +1134,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
 |---|---|---|---|---|---|
 | R1 | FFmpeg 宿主结果扩展到真实业务 | 320×240 矩阵通过不等于生产线程/队列和长稳 | 32/32 P0 矩阵、双后端零 D2D、严格 PTS | 真实应用、多 slice、1080p/4K、多流和长稳 | 1B–P1 |
-| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有 | NVIDIA 参考已固化；AMD 未实现 | 路线 A；逐字节对照；法务评审见[总体方案](CUDA兼容层总体方案.md) | 第 2 步 |
+| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 已集成；P2P3/P3P2 逐字节通过；resize golden 未生成 | 11.5 golden 对照；nonfree 发布方案法务评审见[总体方案](CUDA兼容层总体方案.md) | 第 2 步 |
 | R3 | 目标平台差异 | AMD 布局/驱动/性能不能直接外推 | 仅 AMD 验证机 | 目标平台能力检查；运行时能力探测；Gate 见[总体方案](CUDA兼容层总体方案.md) | 0/1B |
 | R4 | 长尾场景 | 多流/seek/flush/crop/动态分辨率/长期参考 | 未覆盖 | 场景矩阵；缺陷收敛 | P1 |
 
@@ -1168,7 +1175,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | G5 | 场/MBAFF 显式不支持 | 已显式返回不支持 | 无 | 符合 P0 边界 | 错误码/日志 |
 | G6 | 多流 parser/VkSequenceCache 键控 | 单序列/单槽 | 多流不可用 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
 | G7 | seek/flush/crop/动态分辨率 | 部分 flush；crop/动态分辨率未验收 | 长尾场景缺口 | P1 阻塞 | 场景矩阵 |
-| G8 | NPP 3 函数 + nppc | 无源码 | 全部 | 联合链路阻塞 | 逐字节 + 联合链路 |
+| G8 | NPP 3 函数 + nppc | Stage A 已构建；FFmpeg `scale_npp` 已加载；颜色转换联合链路逐字节通过 | resize NVIDIA golden、11.5 ABI、nonfree 发布路径、nppc API | 阶段 A 未完全验收 | 逐字节 + 联合链路 |
 | G9 | FFmpeg 双路径验收 | 两后端 CUVID CPU/CUDA、NVDEC 安全/零拷贝、PTS 容器全部通过 | 真实业务线程/队列、多 slice、长稳未覆盖 | 生产交付前继续扩展 | 双路径像素/帧数/顺序/资源 |
 | G10 | 目标平台能力门禁 | 仅 AMD 验证机 | 目标平台未跑 | 结论不可外推 | 目标平台能力检查通过；Gate 定义见[总体方案](CUDA兼容层总体方案.md) |
 | G11 | 异步跨栈 fence | 未实现 | 只有主机同步 | 高吞吐受限 | sync_file/syncobj 端到端 |
@@ -1202,8 +1209,8 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | FFmpeg 双路径 | `h264_cuvid`/`h264_nvdec` | `run_ffmpeg_compare.sh` | ✅ P0 四路双后端 32/32；PTS 8/8 | 1B |
 | 零拷贝计数 | `h264_nvdec` D2D=0 | `CUDA_SHIM_TRACE_COPY=1` | ✅ 双后端四路 D2D=0（需额外 surface） | 1B |
 | NPP 参考 | 3 函数 | `npp_p0_reference.cpp` | NVIDIA 11.5.1.107 已固化 | 第 2 步 |
-| NPP AMD | 3 函数 + nppc | 待实现 | ❌ 无 | 第 2 步 |
-| 联合链路 | 解码→NPP | 待实现 | ❌ 无 | 第 2 步 |
+| NPP AMD | 3 函数 + nppc | Stage A + 独立 FFmpeg | ⚠️ 颜色转换逐字节；resize golden 未验收；nonfree 发布未决 | 第 2 步 |
+| 联合链路 | 解码→NPP | 待集成 | ⚠️ Stage A 本地自检，未接 FFmpeg | 第 2 步 |
 | 复杂场景 | seek/crop/动态分辨率/多流 | 验证手册场景矩阵 | ❌ 未覆盖 | P1 |
 | 稳定性 | 1/8 路 30 分钟 | 验证手册 | ❌ 未覆盖 | G3 |
 | 目标平台 | 全部 | Gate G1 | ❌ 未跑 | G1/G4 |
@@ -1231,6 +1238,9 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.5（2026-11-13）**：真实 CUDA/NPP 12 头文件构建 Stage A；FFmpeg `scale_npp` 独立 nonfree 构建加载 shim；P2P3/P3P2 双后端逐字节；补充 nonfree 与 11.5 golden 边界。
+- **v4.4（2026-11-13）**：落地 NPP Stage A HIP shim、五库 SONAME、参考/候选探针和比较器；本地自检通过，NVIDIA golden 与 FFmpeg 集成未完成。
+- **v4.3（2026-11-13）**：明确 NPP resize 插值最终覆盖全部 NPP flags，按 cubic/NN/linear → FFmpeg 全选项 → NPP 全模式分阶段实现和验收。
 - **v4.2（2026-11-13）**：修复 NVDEC unsafe 的 frame pool 耗尽与 Vulkan h264_nvdec 缺失参数集；FFmpeg 宿主矩阵更新为 32/32，PTS 8/8。
 - **v4.1（2026-11-13）**：标注后端尚未决策、VAAPI/Vulkan 同级；补 FFmpeg 宿主 32 组合基线（22 PASS / 10 FAIL）状态。
 - **v4.0（2026-11-13）**：按主题归并公共实现、VAAPI/Vulkan/Mesa 后端、构建诊断、阶段与后端验收、性能稳定性方法、风险/缺口/开放问题和追溯矩阵；本文调整为“技术实现、验证证据与风险边界”权威文档，技术事实截止日及 P0 数字和状态不变。
@@ -1253,11 +1263,14 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | 后端选择 | `cuda_shim/src/backend_dispatch.cpp` |
 | SPS/PPS 交接 | `cuda_shim/src/vk_sequence_cache.h` |
 | 帧映射/布局门禁 | `cuda_shim/src/hip_frame_mapper.cpp` |
+| NPP Stage A HIP 实现 | `npp_shim/src/nppig_resize.cpp`、`npp_shim/src/nppicc_color.cpp` |
+| NPP 参考/候选探针 | `tests/npp/npp_stage_a_probe.cpp`、`tests/npp/compare_stage_a.py` |
 | 符号/会话/parser/kernel 读取测试 | `cuda_shim/tests/` |
 | VAAPI/VK 端到端像素验证 | `tests/zerocopy/` |
 | 同步协议 | `tests/sync/` |
-| NPP 参考 | `tests/parser/npp_p0_reference.cpp` |
-| 构建 | `cuda_shim/Makefile` |
+| NPP 旧参考 | `tests/parser/npp_p0_reference.cpp` |
+| NPP Stage A 探针 | `tests/npp/` |
+| 构建 | `cuda_shim/Makefile`、`npp_shim/Makefile` |
 
 ### 16.2 实验程序索引
 

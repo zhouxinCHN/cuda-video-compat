@@ -1,0 +1,12 @@
+make: 进入目录“/home/mark/cuda-video-compat/npp_shim”
+g++ -std=c++17 -fPIC -O2 -Wall -Wextra -I/usr/include -Isrc -c src/nppc_core.cpp -o build/nppc_core.o
+g++ -shared build/nppc_core.o -o libnppc.so.11 -Wl,-soname,libnppc.so.11
+g++ -std=c++17 -fPIC -O2 -Wall -Wextra -I/usr/include -Isrc -c src/nppig_resize.cpp -o build/nppig_resize.o
+/opt/rocm-7.2.4/bin/hipcc -std=c++17 -fPIC -O2 -Wall -Wextra -Isrc  -c src/nppig_resize_hip.cpp -o build/nppig_resize_hip.o
+g++ -shared build/nppig_resize.o build/nppig_resize_hip.o -o libnppig.so.11 -Wl,-soname,libnppig.so.11 -L/opt/rocm-7.2.4/lib -lamdhip64 -lm
+g++ -std=c++17 -fPIC -O2 -Wall -Wextra -I/usr/include -Isrc -c src/nppicc_color.cpp -o build/nppicc_color.o
+/opt/rocm-7.2.4/bin/hipcc -std=c++17 -fPIC -O2 -Wall -Wextra -Isrc  -c src/nppicc_color_hip.cpp -o build/nppicc_color_hip.o
+g++ -shared build/nppicc_color.o build/nppicc_color_hip.o -o libnppicc.so.11 -Wl,-soname,libnppicc.so.11 -L/opt/rocm-7.2.4/lib -lamdhip64 -lm
+Built NPP Stage A shims in /home/mark/cuda-video-compat/npp_shim
+Run: make check-symbols
+make: 离开目录“/home/mark/cuda-video-compat/npp_shim”
