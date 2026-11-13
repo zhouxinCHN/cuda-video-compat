@@ -1,0 +1,86 @@
+NPP Stage A NVIDIA golden environment
+Generated: 2026-11-13 (UTC timestamp below)
+
+$ date -u +%Y-%m-%dT%H:%M:%SZ
+2026-11-13T09:14:07Z
+
+$ git rev-parse HEAD
+d514339975dd4f81c63237e73fd8feac90178522
+
+$ nvidia-smi
+Fri Nov 13 17:14:07 2026
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.99.02              Driver Version: 595.99.02      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 4060        Off |   00000000:03:00.0 Off |                  N/A |
+| 40%   39C    P8            N/A  /  115W |     249MiB /   8188MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A          135843      G   /usr/lib/xorg/Xorg                       75MiB |
+|    0   N/A  N/A          135976      G   /usr/bin/gnome-shell                      6MiB |
+|    0   N/A  N/A          854794      G   /usr/lib/xorg/Xorg                       35MiB |
++-----------------------------------------------------------------------------------------+
+
+$ dpkg -l 'libnpp*'
+Desired=Unknown/Install/Remove/Purge/Hold
+| Status=Not/Inst/Conf-files/Unpacked/halF-conf/Half-inst/trig-aWait/Trig-pend
+|/ Err?=(none)/Reinst-required (Status,Err: uppercase=bad)
+||/ Name               Version                    Architecture Description
++++-==================-==========================-============-============================================================================
+ii  libnppc11:amd64    11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives core runtime library
+ii  libnppial11:amd64  11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Arithmetic and Logic
+ii  libnppicc11:amd64  11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Color Conversion
+ii  libnppidei11:amd64 11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Data Exchange and Initialization
+ii  libnppif11:amd64   11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Filters
+ii  libnppig11:amd64   11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Geometry transforms
+ii  libnppim11:amd64   11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Morphological operations
+ii  libnppist11:amd64  11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Statistics
+ii  libnppisu11:amd64  11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Support
+ii  libnppitc11:amd64  11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives lib for Image Threshold and Compare
+ii  libnpps11:amd64    11.5.1.107~11.5.1-1ubuntu1 amd64        NVIDIA Performance Primitives for signal processing runtime library
+
+$ grep -nE '^#define[[:space:]]+NPP_VERSION|^#define[[:space:]]+NPP_VER' /usr/include/npp.h
+57:#define NPP_VER_MAJOR 11
+58:#define NPP_VER_MINOR 5
+59:#define NPP_VER_PATCH 1
+60:#define NPP_VER_BUILD 107
+62:#define NPP_VERSION (NPP_VER_MAJOR * 1000 +     \
+66:#define NPP_VERSION_MAJOR  NPP_VER_MAJOR
+67:#define NPP_VERSION_MINOR  NPP_VER_MINOR
+68:#define NPP_VERSION_PATCH  NPP_VER_PATCH
+69:#define NPP_VERSION_BUILD  NPP_VER_BUILD
+
+$ grep -nE '^#define[[:space:]]+CUDA_VERSION' /usr/include/cuda.h
+227:#define CUDA_VERSION 11050
+
+$ nvcc --version
+nvcc: NVIDIA (R) Cuda compiler driver
+Copyright (c) 2005-2021 NVIDIA Corporation
+Built on Thu_Nov_18_09:45:30_PST_2021
+Cuda compilation tools, release 11.5, V11.5.119
+Build cuda_11.5.r11.5/compiler.30672275_0
+
+$ dpkg-query -W -f='${Package}\t${Version}\t${Architecture}\n' nvidia-cuda-dev nvidia-cuda-toolkit libnppc11 libnppig11 libnppicc11 libnppidei11 libnppif11
+libnppc11	11.5.1.107~11.5.1-1ubuntu1	amd64
+libnppicc11	11.5.1.107~11.5.1-1ubuntu1	amd64
+libnppidei11	11.5.1.107~11.5.1-1ubuntu1	amd64
+libnppif11	11.5.1.107~11.5.1-1ubuntu1	amd64
+libnppig11	11.5.1.107~11.5.1-1ubuntu1	amd64
+nvidia-cuda-dev	11.5.1-1ubuntu1	amd64
+nvidia-cuda-toolkit	11.5.1-1ubuntu1	amd64
+
+$ ldd tests/npp/npp_stage_a_probe | grep -E 'npp|cuda'
+	libnppig.so.11 => /usr/lib/x86_64-linux-gnu/libnppig.so.11 (0x000076e26a800000)
+	libnppicc.so.11 => /usr/lib/x86_64-linux-gnu/libnppicc.so.11 (0x000076e269e00000)
+	libcudart.so.11.0 => /usr/lib/x86_64-linux-gnu/libcudart.so.11.0 (0x000076e269a00000)
+	libnppc.so.11 => /usr/lib/x86_64-linux-gnu/libnppc.so.11 (0x000076e268e00000)
