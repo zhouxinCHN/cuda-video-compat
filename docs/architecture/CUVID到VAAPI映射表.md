@@ -126,10 +126,10 @@ FFmpeg 的 `dynlink_loader.h` 按固定名字 `dlopen`：
 | CUVID 函数（`tcuvid*`） | 映射到 libva | 备注 |
 |---|---|---|
 | `cuvidGetDecoderCaps(CUVIDDECODECAPS*)` | `vaInitialize` + `vaQueryConfigProfiles` + `vaQueryConfigEntrypoints` + 静态 caps 表（§5） | 按 codec×chroma×bitdepth 查表回填 |
-| `cuvidCreateDecoder(CUvideodecoder*, CUVIDDECODECREATEINFO*)` | `vaCreateConfig` + `vaCreateContext` + `vaCreateSurfaces` | 结构体字段映射见 §4.1 |
+| `cuvidCreateDecoder(CUvideodecoder*, CUVIDDECODECREATEINFO*)` | `vaCreateConfig` + `vaCreateContext` + `vaCreateSurfaces` | 结构体字段映射见 §4.1；当前实现固定 `VAProfileH264High`，Baseline/Main 映射待补（整合版实现缺口 G1） |
 | `cuvidDestroyDecoder` | `vaDestroySurfaces` + `vaDestroyContext` + `vaDestroyConfig` | |
 | `cuvidDecodePicture(h, CUVIDPICPARAMS*)` | `vaBeginPicture` + `vaRenderPicture`(SPS/PPS/slice) + `vaEndPicture` | 见 §4.2 |
-| `cuvidGetDecodeStatus(h, nPicIdx, CUVIDGETDECODESTATUS*)` | shim 内部 surface 状态表 + `vaSyncSurface` | VAAPI 无逐帧查询，shim 自维护 |
+| `cuvidGetDecodeStatus(h, nPicIdx, CUVIDGETDECODESTATUS*)` | shim 内部 surface 状态表 | VAAPI 无逐帧查询，shim 自维护；当前未主动 `vaSyncSurface`（整合版实现缺口 G2） |
 | `cuvidReconfigureDecoder` | 销毁重建 context（VAAPI 无动态 reconfigure） | 仅限分辨率/目标尺寸变化；当前未作为 P0 验收项 |
 | `cuvidMapVideoFrame64(h, idx, *dptr, *pitch, CUVIDPROCPARAMS*)` | `vaSyncSurface` + surface 导出/导入；若带 target 尺寸则接 VPP | 见 §4.3 |
 | `cuvidUnmapVideoFrame64` | 销毁导入对象 / 标记 surface 可复用 | |
@@ -178,7 +178,7 @@ CUVID 的 NVDEC 硬件可以“吃完整码流自解析”：FFmpeg `nvdec.c` �
 
 | CUVID 字段 | 映射 |
 |---|---|
-| `CodecType` + `ChromaFormat` + `bitDepthMinus8` | 三者共同决定 `VAProfile`（§6.1 查表） |
+| `CodecType` + `ChromaFormat` + `bitDepthMinus8` | 三者共同决定 `VAProfile`（§6.1 查表）；目标实现须按 Baseline→ConstrainedBaseline、Main→Main、High→High 映射 |
 | `ulWidth` / `ulHeight` | surface 尺寸 |
 | `ulNumDecodeSurfaces` | `vaCreateSurfaces` 的 `num_surfaces`，建议 = min_num_decode_surfaces + 3 |
 | `OutputFormat` | `VA_RT_FORMAT`（§6.2 查表） |

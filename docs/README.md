@@ -12,9 +12,8 @@
 
 | 文档 | 唯一职责 |
 |---|---|
-| [CUDA 兼容层总体方案](architecture/CUDA兼容层总体方案.md) | 管理层摘要 + 架构导航：结论、范围、状态、路线、成本摘要、风险与下一步 |
-| [方案整合版](architecture/CUDA兼容层方案_整合版.md) | 技术事实、实验证据、数据通路、同步、ABI、遗留项与版本历史 |
-| [方案决策实施版](architecture/CUDA兼容层方案_决策实施版.md) | 路线选型、成本/周期、人力、法务、验收门禁与长期 SDK 规划 |
+| [CUDA 兼容层总体方案](architecture/CUDA兼容层总体方案.md) | **总体架构与实施决策**：目标/边界、总体架构、技术选型、成本/WBS 与人力、排期 Gate、法务/客户边界、长期 SDK 规划 |
+| [方案整合版](architecture/CUDA兼容层方案_整合版.md) | **技术实现、验证与风险边界**：公共实现、VAAPI/Vulkan/Mesa 设计、实验与验收证据、实现缺口、防御性说明、追溯矩阵和版本历史 |
 
 ### 专题文档（当前权威）
 
@@ -41,7 +40,8 @@
 
 ## 阅读建议
 
-1. 先看[内存与同步模型](architecture/内存与同步模型.md)和 [CUVID 到 VAAPI 映射表](architecture/CUVID到VAAPI映射表.md)，建立数据通路与 API 边界。
-2. 需要判断当前状态时看 [P0 闭环验证结果](evidence/P0闭环验证结果_2026-11-12.md)；总体方案、整合版、决策版分别负责架构、证据和决策，不再各自维护状态表。
-3. 需要动手时看[验证手册](verification/验证手册.md)。
-4. 需要扩展 Vulkan 后端时看 [Vulkan 后端实现](architecture/Vulkan后端实现.md) 与 [Vulkan Video 方案评估](architecture/Vulkan_Video方案评估.md)。
+1. 先看[总体方案](architecture/CUDA兼容层总体方案.md)，了解目标边界、总体架构、技术选型、成本人力、排期 Gate、法务/客户边界和长期 SDK 规划。
+2. 再看[内存与同步模型](architecture/内存与同步模型.md)和 [CUVID 到 VAAPI 映射表](architecture/CUVID到VAAPI映射表.md)，建立数据通路与 API 边界。
+3. 需要判断当前状态时看 [P0 闭环验证结果](evidence/P0闭环验证结果_2026-11-12.md)；总体方案负责总体架构、选型、成本与排期，整合版负责技术实现、证据与风险边界，不再各自维护状态表。
+4. 需要动手时看[验证手册](verification/验证手册.md)。
+5. 需要扩展 Vulkan 后端时看 [Vulkan 后端实现](architecture/Vulkan后端实现.md) 与 [Vulkan Video 方案评估](architecture/Vulkan_Video方案评估.md)。

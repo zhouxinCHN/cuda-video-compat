@@ -115,6 +115,8 @@ BACKENDS=vaapi ./run_ffmpeg_compare.sh
 ## 文档
 
 - [文档索引](docs/README.md)
+- [总体方案](docs/architecture/CUDA兼容层总体方案.md)：总体架构、技术选型、成本人力、排期 Gate、法务/客户边界与长期 SDK 规划
+- [技术实现、验证与风险边界](docs/architecture/CUDA兼容层方案_整合版.md)
 - [仓库结构与迁移](docs/仓库结构与迁移.md)
 - [内存与同步模型](docs/architecture/内存与同步模型.md)
 - [CUVID 到 VAAPI 映射表与 P0 API 覆盖](docs/architecture/CUVID到VAAPI映射表.md)
