@@ -1,0 +1,72 @@
+# libnppc core API probe — real NVIDIA NPP 11.5.1.107 (RTX 4060)
+# date: 2026-11-16T11:06:34+08:00
+# build:
+#   make -C tests/npp GPU_RUNTIME=cuda NPP_INCLUDE_DIR=/usr/include \
+#     CUDA_INCLUDE_DIR=/usr/include CUDA_LIB_DIR=/usr/lib/x86_64-linux-gnu \
+#     NPP_LIB_DIR=/usr/lib/x86_64-linux-gnu run-core
+# linkage:
+#   	libnppc.so.11 => /usr/lib/x86_64-linux-gnu/libnppc.so.11 (0x000074fd8d400000)
+
+## Run 1: project-specified expectation string 11.5.107
+$ ./nppc_core_probe --expect-lib-version 11.5.107
+PASS: nppGetLibVersion returns a pointer
+INFO: nppGetLibVersion = 11.5.1
+FAIL: library version matches expectation
+INFO: SMs=24 maxThreadsPerBlock=1024 maxThreadsPerSM=1536
+PASS: nppGetGpuNumSMs > 0
+PASS: nppGetMaxThreadsPerBlock > 0
+PASS: nppGetMaxThreadsPerSM > 0
+PASS: nppGetGpuDeviceProperties succeeds
+PASS: nppGetGpuDeviceProperties threads/SM agrees
+PASS: nppGetGpuDeviceProperties threads/block agrees
+PASS: nppGetGpuDeviceProperties SM count agrees
+INFO: nppGetGpuName = NVIDIA GeForce RTX 4060
+PASS: nppGetGpuName is non-empty
+PASS: default NPP stream is the NULL stream
+PASS: nppSetStream(NULL) succeeds
+PASS: nppGetStream reflects NULL stream
+PASS: nppGetStreamContext succeeds
+PASS: context stream equals nppGetStream
+PASS: context device id is valid
+PASS: context SM count agrees
+PASS: context threads/SM agrees
+PASS: context threads/block agrees
+PASS: context shared memory is non-zero
+INFO: device=0 cc=8.9 smem/block=49152
+PASS: compute capability is reported
+PASS: nppGetStreamNumSMs agrees
+PASS: nppGetStreamMaxThreadsPerSM agrees
+RESULT: FAIL (1 failure)
+# exit=1
+
+## Run 2: actual nppGetLibVersion string reported by real NPP 11.5.1.107
+$ ./nppc_core_probe --expect-lib-version 11.5.1
+PASS: nppGetLibVersion returns a pointer
+INFO: nppGetLibVersion = 11.5.1
+PASS: library version matches expectation
+INFO: SMs=24 maxThreadsPerBlock=1024 maxThreadsPerSM=1536
+PASS: nppGetGpuNumSMs > 0
+PASS: nppGetMaxThreadsPerBlock > 0
+PASS: nppGetMaxThreadsPerSM > 0
+PASS: nppGetGpuDeviceProperties succeeds
+PASS: nppGetGpuDeviceProperties threads/SM agrees
+PASS: nppGetGpuDeviceProperties threads/block agrees
+PASS: nppGetGpuDeviceProperties SM count agrees
+INFO: nppGetGpuName = NVIDIA GeForce RTX 4060
+PASS: nppGetGpuName is non-empty
+PASS: default NPP stream is the NULL stream
+PASS: nppSetStream(NULL) succeeds
+PASS: nppGetStream reflects NULL stream
+PASS: nppGetStreamContext succeeds
+PASS: context stream equals nppGetStream
+PASS: context device id is valid
+PASS: context SM count agrees
+PASS: context threads/SM agrees
+PASS: context threads/block agrees
+PASS: context shared memory is non-zero
+INFO: device=0 cc=8.9 smem/block=49152
+PASS: compute capability is reported
+PASS: nppGetStreamNumSMs agrees
+PASS: nppGetStreamMaxThreadsPerSM agrees
+RESULT: PASS (0 failures)
+# exit=0

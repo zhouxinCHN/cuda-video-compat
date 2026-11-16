@@ -1,0 +1,43 @@
+date=2026-11-16T11:04:03+08:00
+ffmpeg=/tmp/ffmpeg-7.1-npp-src/ffmpeg
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+built with gcc 11 (Ubuntu 11.4.0-1ubuntu1~22.04.3)
+configuration: --prefix=/tmp/ffmpeg-npp-install --disable-static --enable-shared --disable-doc --enable-nonfree --enable-libnpp --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --disable-filter=scale2ref_npp --disable-filter=transpose_npp --disable-filter=sharpen_npp --extra-cflags=-I/usr/include --extra-ldflags=-L/usr/lib/x86_64-linux-gnu
+--- ffmpeg npp linkage ---
+	libnppig.so.11 => /lib/x86_64-linux-gnu/libnppig.so.11 (0x0000713c39800000)
+	libnppicc.so.11 => /lib/x86_64-linux-gnu/libnppicc.so.11 (0x0000713c38e00000)
+	libnppc.so.11 => /lib/x86_64-linux-gnu/libnppc.so.11 (0x0000713c38a00000)
+--- libavfilter npp linkage ---
+	libnppig.so.11 => /lib/x86_64-linux-gnu/libnppig.so.11 (0x00007997faa00000)
+	libnppicc.so.11 => /lib/x86_64-linux-gnu/libnppicc.so.11 (0x00007997fa000000)
+	libnppc.so.11 => /lib/x86_64-linux-gnu/libnppc.so.11 (0x00007997f9800000)
+LD_LIBRARY_PATH=/tmp/ffmpeg-7.1-npp-src/libavfilter:/tmp/ffmpeg-7.1-npp-src/libavutil:/tmp/ffmpeg-7.1-npp-src/libavcodec:/tmp/ffmpeg-7.1-npp-src/libavformat:/tmp/ffmpeg-7.1-npp-src/libswscale:/tmp/ffmpeg-7.1-npp-src/libswresample:/tmp/ffmpeg-7.1-npp-src/libavdevice:/home/mark/NVDEC_VAAPI_对比报告/npp_shim:/home/mark/NVDEC_VAAPI_对比报告/cuda_shim:/opt/rocm-7.2.0/lib
+npp_runtime=cuda
+npp_library=	libnppig.so.11 => /lib/x86_64-linux-gnu/libnppig.so.11 (0x00007c90b2800000)
+source_sha256=19ec213dafde22863f5abdb53e4b91f668264c244bcf6e5cdcebd83aa4b6caf6
+
+--- host / NPP ---
+uname=Linux 6.8.0-138-generic x86_64
+NVIDIA GeForce RTX 4060, 595.99.02, 8.9, 8188 MiB
+nvidia-smi CUDA level: CUDA Version: 13.2
+Cuda compilation tools, release 11.5, V11.5.119
+Build cuda_11.5.r11.5/compiler.30672275_0
+libnppc11	11.5.1.107~11.5.1-1ubuntu1
+libnppial11	11.5.1.107~11.5.1-1ubuntu1
+libnppicc11	11.5.1.107~11.5.1-1ubuntu1
+libnppidei11	11.5.1.107~11.5.1-1ubuntu1
+libnppif11	11.5.1.107~11.5.1-1ubuntu1
+libnppig11	11.5.1.107~11.5.1-1ubuntu1
+libnppim11	11.5.1.107~11.5.1-1ubuntu1
+libnppist11	11.5.1.107~11.5.1-1ubuntu1
+libnppisu11	11.5.1.107~11.5.1-1ubuntu1
+libnppitc11	11.5.1.107~11.5.1-1ubuntu1
+libnpps11	11.5.1.107~11.5.1-1ubuntu1
+nvidia-cuda-toolkit	11.5.1-1ubuntu1
+NPP headers /usr/include/npp.h:
+#define NPP_VER_MAJOR 11
+#define NPP_VER_MINOR 5
+#define NPP_VER_PATCH 1
+#define NPP_VER_BUILD 107
+nppc core probe linkage:
+	libnppc.so.11 => /usr/lib/x86_64-linux-gnu/libnppc.so.11 (0x00007dc274000000)

@@ -232,5 +232,7 @@ must be fixed before rawvideo can be used in this matrix.
 6. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild;
 7. ✅ `libnppc` core API (version, device limits, name, stream, stream context)
    implemented and probed on the AMD shim;
-8. ⏳ FFmpeg `scale_npp` end-to-end matrix: AMD side is deterministic (40/40,
-   26,307,120 bytes); NVIDIA golden and the byte comparison are pending.
+8. ✅ FFmpeg `scale_npp` end-to-end matrix: AMD side is deterministic (40/40,
+   26,307,120 bytes); NVIDIA golden generated with real NPP 11.5.1.107, and all
+   40 case SHA256 values match. See
+   [NVIDIA evidence](../../docs/evidence/NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/README.md).

@@ -14,6 +14,8 @@
 - `NPP_StageA_本地集成_2026-11-13/`：NPP shim 真实头文件构建、FFmpeg `scale_npp` 接入、双后端 P2P3/P3P2 逐字节联合链路。
 - `NPP_StageA_NVIDIA_11.5_golden/`：N 卡 RTX 4060 / NPP 11.5.1.107 生成并重复校验的 Stage A golden。
 - `NPP_StageA_AMD_11.5对比_2026-11-13/`：AMD shim candidate 与 NVIDIA golden 的 32/32 逐字节 PASS 记录。
+- `NPP_FFmpeg_scale_npp_AMD_2026-11-16/`：FFmpeg 7.1 `scale_npp` 端到端 40 case 的 AMD shim candidate（自洽性、确定性）。
+- `NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/`：同矩阵的 NVIDIA NPP 11.5.1.107 golden；40/40 case 与 AMD candidate SHA256 逐字节一致。
 
 ## 约定
 
