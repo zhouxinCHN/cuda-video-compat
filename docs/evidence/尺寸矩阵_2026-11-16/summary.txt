@@ -1,0 +1,9 @@
+PASS 1920x1080-cuvid-vaapi frames=30 elapsed_ms=484
+PASS 1920x1080-cuvid-vk frames=30 elapsed_ms=491
+PASS 1920x1080-nvdec-vaapi frames=30 elapsed_ms=608
+PASS 1920x1080-nvdec-vk frames=30 elapsed_ms=658
+PASS 3840x2160-cuvid-vaapi frames=5 elapsed_ms=2476
+PASS 3840x2160-cuvid-vk frames=5 elapsed_ms=544
+PASS 3840x2160-nvdec-vaapi frames=5 elapsed_ms=585
+PASS 3840x2160-nvdec-vk frames=5 elapsed_ms=1485
+RESULT: 8 passed, 0 failed
