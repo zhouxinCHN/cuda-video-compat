@@ -1,0 +1,3 @@
+PASS vaapi streams=8 elapsed=1s
+PASS vk streams=8 elapsed=0s
+RESULT: 2 passed, 0 failed

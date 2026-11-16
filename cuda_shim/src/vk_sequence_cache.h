@@ -1,7 +1,7 @@
 #ifndef CUDA_SHIM_VK_SEQUENCE_CACHE_H
 #define CUDA_SHIM_VK_SEQUENCE_CACHE_H
 
-// Process-global stash of the most recently parsed H.264 SPS/PPS NAL bytes.
+// Per-thread stash of the most recently parsed H.264 SPS/PPS NAL bytes.
 //
 // Why this exists: the CUVID host (FFmpeg h264_cuvid / h264_nvdec) feeds the
 // decoder only *per-slice* NALs through cuvidDecodePicture. SPS/PPS are parsed
@@ -10,13 +10,16 @@
 //
 // This cache is the seam between them: CuvidParser::store()s the SPS/PPS NAL
 // bytes when it sees them; VulkanH264Decoder::fetch()es them to lazily build its
-// Vulkan session + session parameters. Single-slot by design (matches the
-// single-stream, single-decoder FFmpeg host); multi-stream needs a keyed
-// registry (P1-2 TODO).
+// Vulkan session + session parameters.
+//
+// The slot is thread-local, not process-global: FFmpeg runs one decoder in its
+// own thread, so concurrent streams no longer overwrite each other's parameter
+// sets. A single thread that interleaves several decoders still has one slot
+// and must serialize per-stream decode; that limitation is documented in
+// docs/architecture/Vulkan后端实现.md.
 
 #include <cstdint>
 #include <cstddef>
-#include <mutex>
 #include <vector>
 
 namespace cuvid_shim {
@@ -25,7 +28,6 @@ class VkSequenceCache {
 public:
     static void store(const uint8_t *sps, size_t sps_n,
                       const uint8_t *pps, size_t pps_n) {
-        std::lock_guard<std::mutex> lock(mtx_);
         sps_.clear();
         pps_.clear();
         if (sps && sps_n) {
@@ -41,7 +43,6 @@ public:
     }
 
     static bool fetch(std::vector<uint8_t> *sps, std::vector<uint8_t> *pps) {
-        std::lock_guard<std::mutex> lock(mtx_);
         if (sps_.empty() || pps_.empty()) return false;
         *sps = sps_;
         *pps = pps_;
@@ -49,9 +50,8 @@ public:
     }
 
 private:
-    static inline std::vector<uint8_t> sps_;
-    static inline std::vector<uint8_t> pps_;
-    static inline std::mutex mtx_;
+    static inline thread_local std::vector<uint8_t> sps_;
+    static inline thread_local std::vector<uint8_t> pps_;
 };
 
 } // namespace cuvid_shim

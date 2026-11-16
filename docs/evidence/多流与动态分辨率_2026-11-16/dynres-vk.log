@@ -1,0 +1,4 @@
+SEQUENCE 320x240 (coded 320x240, 7 surfaces)
+SEQUENCE CHANGE 320x240 -> 640x480
+SEQUENCE 640x480 (coded 640x480, 7 surfaces)
+RESULT: 22 frames decoded

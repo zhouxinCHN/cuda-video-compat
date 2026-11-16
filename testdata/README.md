@@ -15,6 +15,8 @@
 | `h264/test_pts_320x240.mp4` | High，320×240，30 fps，含 B 帧；用于严格 PTS/显示顺序回归 | 30 |
 | `h264/test_slices_320x240.h264` | High，320×240，每 picture 4 个 slice；多 slice 组装回归 | 12 |
 | `h264/test_crop_1080p.h264` | High，1920×1080（coded 1088，SPS 裁剪）；裁剪/chroma 偏移回归 | 6 |
+| `h264/test_reschange_320x240.h264` | High，320×240；动态分辨率/多流第一段 | 11 |
+| `h264/test_reschange_640x480.h264` | High，640×480；动态分辨率/多流第二段 | 11 |
 
 后四个是 **B 帧验证组**：`test_p_b_5` / `test_p_b_7` 覆盖“解码序前几帧参考槽数递增 / 参考表修改”的路径；
 `test_p_main` 与 `test_p_66` 是无 B 帧对照组（两种 profile）。这四个码流就是
@@ -67,6 +69,14 @@ ffmpeg -y -f lavfi -i "testsrc2=size=320x240:rate=30:duration=0.4" \
 ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=0.2" \
   -vf format=yuv420p -c:v libx264 -preset ultrafast \
   -x264-params "keyint=30:bframes=0:scenecut=0" test_crop_1080p.h264
+
+# 动态分辨率/多流：两段不同尺寸，顺序拼接即为 320x240 -> 640x480
+ffmpeg -y -f lavfi -i "testsrc2=size=320x240:rate=30:duration=0.34" \
+  -vf format=yuv420p -c:v libx264 -preset ultrafast \
+  -x264-params "keyint=10:bframes=0:scenecut=0" test_reschange_320x240.h264
+ffmpeg -y -f lavfi -i "testsrc2=size=640x480:rate=30:duration=0.34" \
+  -vf format=yuv420p -c:v libx264 -preset ultrafast \
+  -x264-params "keyint=10:bframes=0:scenecut=0" test_reschange_640x480.h264
 
 # 带 PTS/DTS 的 PTS 顺序容器（需要 VAAPI H.264 编码器）
 ffmpeg -y -vaapi_device /dev/dri/renderD128 \

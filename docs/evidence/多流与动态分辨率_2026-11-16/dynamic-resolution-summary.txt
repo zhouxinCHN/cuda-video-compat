@@ -1,0 +1,3 @@
+PASS vaapi PASS: 22 frames match software (11 at 320x240, 11 at 640x480)
+PASS vk PASS: 22 frames match software (11 at 320x240, 11 at 640x480)
+RESULT: 2 passed, 0 failed

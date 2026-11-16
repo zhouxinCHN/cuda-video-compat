@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.12
+> 版本：v4.13
 > 文档日期：2026-11-16
 > 技术事实截止：2026-11-16
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -1177,8 +1177,8 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | G3 | `cuvidReconfigureDecoder` 支持分辨率/目标尺寸变化 | 两后端均返回 `NOT_SUPPORTED` | 动态分辨率不可用 | 长尾场景失败 | destroy/recreate 或后端等价实现 |
 | G4 | `CUVIDPROCPARAMS.output_stream` 接入 | 未接入，map 同步 | 异步 map 语义缺失 | 性能语义与 CUDA 不同 | 明确实现或文档化限制 |
 | G5 | 场/MBAFF 显式不支持 | 已显式返回不支持 | 无 | 符合 P0 边界 | 错误码/日志 |
-| G6 | 多流 parser/VkSequenceCache 键控 | 单序列/单槽 | 多流不可用 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
-| G7 | seek/flush/crop/动态分辨率 | seek/flush、crop、多 slice 双后端 12/12 通过；动态分辨率受 FFmpeg 固定 hwframes 限制，LTR 未实现 | 动态分辨率宿主重建与 LTR 缺口 | 长尾场景风险 | 场景矩阵 + 宿主重建用例 |
+| G6 | 多流 parser/VkSequenceCache 键控 | 缓存改为线程局部；单进程 8 路并发双后端逐字节通过 | 同线程交错多 decoder 仍不支持 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
+| G7 | seek/flush/crop/动态分辨率 | seek/flush、crop、多 slice 双后端 12/12 通过；动态分辨率 CUVID 宿主重建双后端 22/22；LTR 未实现 | FFmpeg CLI 固定 hwframes、LTR 缺口 | 长尾场景风险 | 场景矩阵 + 宿主重建用例 |
 | G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过；nppc 核心 API 完整并通过探针；FFmpeg 端到端 40/40 SHA256 在 NVIDIA 与 AMD 两侧一致 | 真实业务/长稳；最终构建头文件固定为 CUDA/NPP 12.0.1.104；nonfree FFmpeg 由客户自建 | 核心数值通过 | 逐字节 + 联合链路 |
 | G9 | FFmpeg 双路径验收 | 两后端 CUVID CPU/CUDA、NVDEC 安全/零拷贝、PTS 容器全部通过 | 真实业务线程/队列、多 slice、长稳未覆盖 | 生产交付前继续扩展 | 双路径像素/帧数/顺序/资源 |
 | G10 | 目标平台能力门禁 | 仅 AMD 验证机 | 目标平台未跑 | 结论不可外推 | 目标平台能力检查通过；Gate 定义见[总体方案](CUDA兼容层总体方案.md) |
@@ -1242,6 +1242,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.13（2026-11-16）**：`VkSequenceCache` 改为线程局部，修复多流参数集串扰；新增 CUVID 级动态分辨率宿主和 8 路并发脚本，双后端分别 22/22 帧、8/8 路与软件一致。FFmpeg CLI 动态分辨率限制与 LTR 仍记录为缺口。
 - **v4.12（2026-11-16）**：多 slice 组装与 VK 多 slice 提交、1080p 裁剪 chroma 视图、序列变化检测、unmap 同步；新增 `run_decode_scenarios.sh`，多 slice/crop/seek × cuvid/nvdec × 双后端 12/12 通过；动态分辨率与 LTR 记录为剩余缺口。
 - **v4.11（2026-11-16）**：修复 rawvideo + `hwupload_cuda` 跨帧损坏（host 参与的 `cuMemcpy2DAsync` 改为同步），新增 `verify_hwupload_roundtrip.sh` 回归测试；`scale_npp` 矩阵保留 lavfi 默认口径，rawvideo 模式需同模式 golden。
 - **v4.10（2026-11-16）**：FFmpeg `scale_npp` 端到端 NVIDIA golden 闭环：真实 NPP 11.5.1.107 与 AMD shim 的 40/40 case、26,307,120 bytes SHA256 一致；`nppGetLibVersion` 修正为真实库返回值 `{11,5,1}`。

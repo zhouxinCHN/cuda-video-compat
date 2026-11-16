@@ -6,6 +6,9 @@
 
 ROCM_DIR  ?= /opt/rocm
 CXX       ?= g++
+HIPCC     ?= $(ROCM_DIR)/bin/hipcc
+NVCODEC_DIR ?= $(HOME)/nv-codec-headers/include
+SHIM_DIR  ?= ../../cuda_shim
 CXXFLAGS  := -std=c++17 -D__HIP_PLATFORM_AMD__ -Wno-unused-result -I$(ROCM_DIR)/include
 LDFLAGS   := -L$(ROCM_DIR)/lib -lamdhip64 -lhsa-runtime64 -lva -lva-drm -ldl
 
@@ -30,6 +33,16 @@ verify_modifier_linear: verify_modifier_linear.cpp
 
 verify_p010_linear: verify_p010_linear.cpp
 	$(CXX) $(CXXFLAGS) $< -o $@ $(LDFLAGS) -lva -lva-drm
+
+# CUVID-level dynamic-resolution host: CUVID parser + decoder recreation.
+verify_resolution_change: verify_resolution_change.cpp verify_resolution_change_hip.cpp
+	$(CXX) -std=c++17 -O2 -I$(NVCODEC_DIR) -c verify_resolution_change.cpp \
+		-o verify_resolution_change_host.o
+	$(HIPCC) -std=c++17 -O2 -c verify_resolution_change_hip.cpp \
+		-o verify_resolution_change_hip.o
+	$(CXX) verify_resolution_change_host.o verify_resolution_change_hip.o -o $@ \
+		-L$(SHIM_DIR) -Wl,-rpath,$(abspath $(SHIM_DIR)) -lnvcuvid \
+		-L$(ROCM_DIR)/lib -Wl,-rpath,$(abspath $(ROCM_DIR)/lib) -lamdhip64
 
 run: verify_zerocopy
 	@echo "=== 运行零拷贝验证（实验1/2/3） ==="
@@ -67,7 +80,12 @@ p010: verify_p010_linear
 	@echo "=== 10-bit (P010) 线性 surface 验证 ==="
 	./verify_p010_linear
 
-clean:
-	rm -f $(TARGETS)
+dynres: verify_resolution_change
+	@echo "=== 动态分辨率：CUVID 宿主重建解码器 ==="
+	./run_resolution_change.sh
 
-.PHONY: all run retry retry2 loop-decode loop-encode linear multires modifier-linear p010 clean
+clean:
+	rm -f $(TARGETS) verify_resolution_change verify_resolution_change_host.o \
+	      verify_resolution_change_hip.o
+
+.PHONY: all run retry retry2 loop-decode loop-encode linear multires modifier-linear p010 dynres clean

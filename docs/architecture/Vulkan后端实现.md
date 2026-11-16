@@ -30,7 +30,7 @@ libnvcuvid.cpp ─── DecoderBackend 接口（backend_dispatch 按 CUVID_SHIM
 | `src/backend_dispatch.h` / `.cpp` | `make_backend()`：读 `CUVID_SHIM_BACKEND`（`vk`/`vaapi`），默认 vaapi |
 | `src/vulkan_h264_decoder.h` / `.cpp` | Vulkan Video 解码后端（核心新增） |
 | `src/h264_direct_params.h` / `.cpp` | 从 `CUVIDH264PICPARAMS` 合成最小 Annex-B SPS/PPS（h264_nvdec 路径） |
-| `src/vk_sequence_cache.h` | 进程级 SPS/PPS NAL 字节暂存（parser ↔ decoder 的接缝，前置 start code） |
+| `src/vk_sequence_cache.h` | 每线程 SPS/PPS NAL 字节暂存（parser ↔ decoder 的接缝，前置 start code） |
 | `src/hip_frame_mapper.h` / `.cpp` | 新增 `map_fd()`：直接导入已导出的 dma-buf fd |
 | `src/cuvid_parser.cpp` / `.h` | 加 SPS/PPS stash + 双就绪后 `VkSequenceCache::store()` |
 | `src/libnvcuvid.cpp` | 改用 `DecoderBackend` |
@@ -43,13 +43,13 @@ libnvcuvid.cpp ─── DecoderBackend 接口（backend_dispatch 按 CUVID_SHIM
 
 Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性给出，但两条 FFmpeg 宿主路径提供信息的方式不同：
 
-- **`h264_cuvid`**：`CuvidParser` 能看到 SPS/PPS。它把原始 NAL（保留 EPB）写入进程级单槽 `VkSequenceCache`，后端优先使用这份字节，profile/VUI/crop 保真。
+- **`h264_cuvid`**：`CuvidParser` 能看到 SPS/PPS。它把原始 NAL（保留 EPB）写入每线程单槽 `VkSequenceCache`，后端优先使用这份字节，profile/VUI/crop 保真。
 - **`h264_nvdec`**：FFmpeg 自己解析参数集，只通过 `cuvidDecodePicture` 交出解析后的 `CUVIDH264PICPARAMS` 和 slice 数据，shim parser 完全不参与。`VkSequenceCache` 因此为空，旧实现会在 `decode()` 里返回成功但从未建立 session，map 时表现为 `CUDA_ERROR_INVALID_VALUE`。
 
 现在 `h264_nvdec` 的兜底是 `h264_direct_params.cpp`：从 `CUVIDH264PICPARAMS` 构造一份最小 Annex-B SPS/PPS，存放在 decoder 实例内。后端先尝试原始 cache，失败后用合成参数集。合成字段限制见 §3.6。
 
-- 进程级 cache 单槽只支撑 `h264_cuvid` 单流；多流仍需按 `CUvideodecoder` 键控（P1）。
-- `h264_nvdec` 的合成参数集按 decoder 保存，不使用进程级单槽。
+- cache 为每线程单槽：FFmpeg 一路解码器一个线程，单进程 8 路并发已验证；同一线程内交错驱动多个 decoder 仍不支持，需要按 decoder 键控（P1）。
+- `h264_nvdec` 的合成参数集按 decoder 保存，不使用该单槽。
 - 没有参数集时 `decode()` 必须返回明确错误，不能伪成功。
 
 ### 3.2 懒建 session
@@ -110,7 +110,7 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 |---|---|---|
 | 1 | `cuvidReconfigureDecoder` | 当前 stub（与 VAAPI 后端一致），Vulkan 需销毁重建 session，未接 |
 | 2 | 异步同步（sync_file 桥接） | 首期主机同步够用；异步桥接需 ROCm 协同，不阻塞 |
-| 3 | 多流 / seek / 动态分辨率 | 单流单序列已覆盖；多流需按 decoder 键控 `VkSequenceCache` 与合成参数集 |
+| 3 | 多流 / seek / 动态分辨率 | 8 路并发与 CUVID 宿主重建已覆盖；同线程交错多 decoder 仍需按 decoder 键控 |
 | 4 | HEVC/VP9/AV1 | 本次只有 H264（对齐 P0 范围）；Std 转换与 slice 解析按 codec 扩展 |
 | 5 | transfer-only 队列族导出 | 现走 compute 队列族；SDMA 路径的多平面 pitch 另有上游疑点 |
 | 6 | 多 slice / crop / VUI / POC type 1 / 非默认缩放矩阵 | 当前显式不支持；P0 四路单 slice 已通过 |

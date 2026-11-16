@@ -44,6 +44,9 @@ tests/vulkan-video/basic/verify_vulkan_video
 tests/vulkan-video/full/verify_vulkan_video_full
 tests/npp/npp_stage_a_probe
 tests/npp/nppc_core_probe
+tests/zerocopy/verify_resolution_change
+tests/zerocopy/verify_resolution_change_host.o
+tests/zerocopy/verify_resolution_change_hip.o
 
 # NPP shim shared objects, object files and generated Stage A probe output
 npp_shim/build/
