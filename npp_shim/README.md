@@ -30,9 +30,13 @@ return an explicit error.
 - **FFmpeg treats `libnpp` as nonfree**: `--enable-libnpp` requires
   `--enable-nonfree` and the result is marked unredistributable. The current
   integration is for internal validation only.
-- `libnppc` currently exposes only `nppGetLibVersion`; stream/version APIs are a
-  later increment. It reports the NPP 11.5.1.107 compatibility baseline even
-  though the shim is built with 12.0.1.104 headers.
+- `libnppc` implements the full core API from CUDA/NPP 12.0.1.104:
+  `nppGetLibVersion`, `nppGetGpuNumSMs`, `nppGetMaxThreadsPerBlock`,
+  `nppGetMaxThreadsPerSM`, `nppGetGpuDeviceProperties`, `nppGetGpuName`,
+  `nppGetStream`, `nppSetStream`, `nppGetStreamContext`, `nppGetStreamNumSMs`,
+  `nppGetStreamMaxThreadsPerSM`. Device fields come from
+  `hipGetDeviceProperties`; the version query reports the NPP 11.5.1.107
+  compatibility baseline even though the shim is built with 12.0.1.104 headers.
 - No NVIDIA NPP headers or binaries are stored in this repository.
 
 ## Build
@@ -73,14 +77,21 @@ Stage A acceptance status:
 4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI/Vulkan;
 5. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild;
 6. ✅ delivery boundary: the customer builds the NPP-enabled FFmpeg; the
-   vendor ships chip plus driver and does not bundle this nonfree build.
+   vendor ships chip plus driver and does not bundle this nonfree build;
+7. ✅ `libnppc` core API probed on the shim (version, device limits, name,
+   stream and stream context);
+8. ⏳ FFmpeg `scale_npp` end-to-end matrix: AMD side deterministic (40/40 cases,
+   26,307,120 bytes); NVIDIA golden comparison pending.
 
 ## Known limitations
 
 - Resize is byte-identical to the NPP 11.5.1.107 golden for the implemented
   Stage A cases, but the scope is limited to NN/linear/cubic and the documented
   probe geometries; do not generalize it to all NPP modes.
-- Stage A uses host synchronization for correctness.
+- Stage A uses host synchronization for correctness. `nppSetStream` records the
+  requested stream and flushes the device on a switch, but kernels still run on
+  the default stream; a non-NULL NPP stream is therefore ordering-safe, not
+  concurrent.
 - Only 8-bit C1 resize and NV12↔YUV420P 4:2:0 conversion.
 - Stage B (remaining FFmpeg interpolation options) and Stage C (all NPP
   interpolation flags) are not implemented.

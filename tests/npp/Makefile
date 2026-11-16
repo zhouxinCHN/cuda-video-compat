@@ -28,6 +28,7 @@ NPP_LIB_DIR     ?= $(CUDA_LIB_DIR)
 BUILD_DIR       ?= build
 
 BIN := npp_stage_a_probe
+CORE_PROBE := nppc_core_probe
 CXXFLAGS := -std=c++17 -O2 -Wall -Wextra -I$(NPP_INCLUDE_DIR) -I$(CUDA_INCLUDE_DIR)
 NPP_LIBS := -L$(NPP_LIB_DIR) -lnppc -lnppig -lnppicc -lnppidei -lnppif
 
@@ -35,6 +36,7 @@ ifeq ($(GPU_RUNTIME),shim)
   GPU_BRIDGE_SRC := npp_probe_gpu_hip.cpp
   GPU_BRIDGE_CXX := $(HIPCC)
   GPU_BRIDGE_FLAGS := $(HIPCC_EXTRA)
+  CORE_RPATH := -Wl,-rpath,$(abspath $(ROCM_DIR)/lib)
   LDFLAGS := -L$(ROCM_DIR)/lib -Wl,-rpath,$(abspath $(ROCM_DIR)/lib) \
              -Wl,-rpath,$(abspath $(NPP_LIB_DIR))
   LDLIBS := $(NPP_LIBS) -lamdhip64
@@ -42,6 +44,7 @@ else ifeq ($(GPU_RUNTIME),cuda)
   GPU_BRIDGE_SRC := npp_probe_gpu_cuda.cpp
   GPU_BRIDGE_CXX := $(CXX)
   GPU_BRIDGE_FLAGS :=
+  CORE_RPATH := -Wl,-rpath,$(abspath $(CUDA_LIB_DIR))
   LDFLAGS := -L$(CUDA_LIB_DIR) -Wl,-rpath,$(abspath $(CUDA_LIB_DIR)) \
              -Wl,-rpath,$(abspath $(NPP_LIB_DIR))
   LDLIBS := $(NPP_LIBS) -lcudart
@@ -49,9 +52,9 @@ else
   $(error GPU_RUNTIME must be 'cuda' or 'shim')
 endif
 
-.PHONY: all clean run
+.PHONY: all clean run run-core
 
-all: $(BIN)
+all: $(BIN) $(CORE_PROBE)
 
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
@@ -72,5 +75,19 @@ $(BIN): $(BUILD_DIR)/npp_stage_a_probe.o $(BUILD_DIR)/npp_probe_gpu.o
 run: $(BIN)
 	./$(BIN) --output npp-stage-a-output
 
+$(BUILD_DIR)/nppc_core_probe.o: nppc_core_probe.cpp $(BUILD_DIR)
+	@test -n "$(NPP_INCLUDE_DIR)" || \
+		{ echo "NPP_INCLUDE_DIR is required (authorized NPP headers)" >&2; exit 2; }
+	@test -f "$(NPP_INCLUDE_DIR)/nppcore.h" || \
+		{ echo "$(NPP_INCLUDE_DIR)/nppcore.h not found" >&2; exit 2; }
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+$(CORE_PROBE): $(BUILD_DIR)/nppc_core_probe.o
+	$(CXX) $^ -o $@ -L$(NPP_LIB_DIR) $(CORE_RPATH) \
+		-Wl,-rpath,$(abspath $(NPP_LIB_DIR)) -lnppc
+
+run-core: $(CORE_PROBE)
+	./$(CORE_PROBE) $(CORE_PROBE_ARGS)
+
 clean:
-	rm -rf $(BUILD_DIR) $(BIN) npp-stage-a-output
+	rm -rf $(BUILD_DIR) $(BIN) $(CORE_PROBE) npp-stage-a-output

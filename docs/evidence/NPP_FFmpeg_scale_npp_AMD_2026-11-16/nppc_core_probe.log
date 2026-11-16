@@ -1,0 +1,28 @@
+PASS: nppGetLibVersion returns a pointer
+INFO: nppGetLibVersion = 11.5.107
+PASS: library version matches expectation
+INFO: SMs=48 maxThreadsPerBlock=1024 maxThreadsPerSM=2048
+PASS: nppGetGpuNumSMs > 0
+PASS: nppGetMaxThreadsPerBlock > 0
+PASS: nppGetMaxThreadsPerSM > 0
+PASS: nppGetGpuDeviceProperties succeeds
+PASS: nppGetGpuDeviceProperties threads/SM agrees
+PASS: nppGetGpuDeviceProperties threads/block agrees
+PASS: nppGetGpuDeviceProperties SM count agrees
+INFO: nppGetGpuName = AMD Radeon RX 7900 XTX
+PASS: nppGetGpuName is non-empty
+PASS: default NPP stream is the NULL stream
+PASS: nppSetStream(NULL) succeeds
+PASS: nppGetStream reflects NULL stream
+PASS: nppGetStreamContext succeeds
+PASS: context stream equals nppGetStream
+PASS: context device id is valid
+PASS: context SM count agrees
+PASS: context threads/SM agrees
+PASS: context threads/block agrees
+PASS: context shared memory is non-zero
+INFO: device=0 cc=11.0 smem/block=65536
+PASS: compute capability is reported
+PASS: nppGetStreamNumSMs agrees
+PASS: nppGetStreamMaxThreadsPerSM agrees
+RESULT: PASS (0 failures)

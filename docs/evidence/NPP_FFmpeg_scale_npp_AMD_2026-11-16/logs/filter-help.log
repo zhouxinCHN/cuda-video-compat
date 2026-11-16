@@ -1,0 +1,29 @@
+Filter scale_npp
+  NVIDIA Performance Primitives video scaling and format conversion
+    Inputs:
+       #0: default (video)
+    Outputs:
+       #0: default (video)
+nppscale AVOptions:
+   w                 <string>     ..FV....... Output video width
+   h                 <string>     ..FV....... Output video height
+   format            <string>     ..FV....... Output pixel format (default "same")
+   s                 <string>     ..FV....... Output video size
+   interp_algo       <int>        ..FV....... Interpolation algorithm used for resizing (from 0 to INT_MAX) (default cubic)
+     nn              1            ..FV....... nearest neighbour
+     linear          2            ..FV....... linear
+     cubic           4            ..FV....... cubic
+     cubic2p_bspline 5            ..FV....... 2-parameter cubic (B=1, C=0)
+     cubic2p_catmullrom 6            ..FV....... 2-parameter cubic (B=0, C=1/2)
+     cubic2p_b05c03  7            ..FV....... 2-parameter cubic (B=1/2, C=3/10)
+     super           8            ..FV....... supersampling
+     lanczos         16           ..FV....... Lanczos
+   force_original_aspect_ratio <int>        ..FV....... decrease or increase w/h if necessary to keep the original AR (from 0 to 2) (default disable)
+     disable         0            ..FV.......
+     decrease        1            ..FV.......
+     increase        2            ..FV.......
+   force_divisible_by <int>        ..FV....... enforce that the output resolution is divisible by a defined integer when force_original_aspect_ratio is used (from 1 to 256) (default 1)
+   eval              <int>        ..FV....... specify when to evaluate expressions (from 0 to 1) (default init)
+     init            0            ..FV....... eval expressions once during initialization
+     frame           1            ..FV....... eval expressions during initialization and per-frame
+

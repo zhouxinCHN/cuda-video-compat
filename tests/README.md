@@ -9,7 +9,7 @@
 | `sync/` | S1–S8 同步协议、HIP semaphore / DRM syncobj 探测 | AMD GPU |
 | `vulkan-video/` | Vulkan Video 能力探测（basic/full） | AMD GPU + RADV |
 | `quick-verify/` | mapped pointer kernel 读取、FFmpeg 双路径像素/零拷贝脚本 | AMD GPU + FFmpeg 7.1 |
-| `npp/` | NPP Stage A 参考/候选探针（3 函数、NN/linear/cubic）与逐字节比较 | NVIDIA NPP 或 AMD NPP shim + 授权 NPP 头文件 |
+| `npp/` | NPP Stage A 参考/候选探针、`libnppc` 核心 API 探针、FFmpeg `scale_npp` 端到端矩阵与逐字节比较 | NVIDIA NPP 或 AMD NPP shim + 授权 NPP 头文件；端到端矩阵另需启用 `libnpp` 的 FFmpeg |
 
 ## 常用命令
 
@@ -36,7 +36,14 @@ make -C tests/npp GPU_RUNTIME=cuda NPP_INCLUDE_DIR=/path/to/cuda/include \
   CUDA_LIB_DIR=/path/to/cuda/lib64 NPP_LIB_DIR=/path/to/cuda/lib64
 (cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden)
 
-# 6. Quick Verify（AMD）
+# 6. libnppc 核心 API 探针 + FFmpeg scale_npp 端到端矩阵
+make -C tests/npp GPU_RUNTIME=cuda NPP_INCLUDE_DIR=/path/to/cuda/include \
+  NPP_LIB_DIR=/path/to/cuda/lib64 run-core
+FFMPEG_BUILD_DIR=/path/to/ffmpeg-npp-build NPP_RUNTIME=cuda \
+  OUT_DIR=/tmp/scale-npp-nvidia tests/npp/run_ffmpeg_scale_npp.sh
+python3 tests/npp/compare_ffmpeg_scale_npp.py /tmp/scale-npp-nvidia /tmp/scale-npp-amd
+
+# 7. Quick Verify（AMD）
 cd tests/quick-verify
 ./run_kernel_read.sh
 
@@ -52,7 +59,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 
 2026-11-13 FFmpeg 宿主矩阵修复后：32 RUN / 32 PASS / 0 FAIL / 0 SKIP，双后端 `nvdec-unsafe` 均 D2D=0 且像素一致。结果与原始日志见 [FFmpeg 宿主双后端基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。另有带 PTS 的 30 帧 MP4 严格顺序验证，双后端共 8 种模式 8 PASS / 0 FAIL，见 [PTS 顺序验证](../docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
 
-NPP Stage A：用最终基线 CUDA/NPP 12.0.1.104 头文件构建成功（无需 11.5 头文件重建），独立 FFmpeg `scale_npp` 已加载；AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目逐字节一致，P2P3/P3P2 在双解码后端也逐字节一致。详见 [AMD vs golden](../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
+NPP Stage A：用最终基线 CUDA/NPP 12.0.1.104 头文件构建成功（无需 11.5 头文件重建），独立 FFmpeg `scale_npp` 已加载；AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目逐字节一致，P2P3/P3P2 在双解码后端也逐字节一致。`libnppc` 核心 API 已补全并通过 `nppc_core_probe`；FFmpeg `scale_npp` 端到端 40 case 在 AMD 侧重复运行逐字节一致，NVIDIA golden 待补。详见 [AMD vs golden](../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md) 和 [FFmpeg scale_npp AMD](../docs/evidence/NPP_FFmpeg_scale_npp_AMD_2026-11-16/README.md)。
 
 ## 注意
 

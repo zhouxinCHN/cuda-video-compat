@@ -1,12 +1,12 @@
 # NPP 兼容方案与 VPE 后处理对比
 
-> 版本：v1.6
-> 文档日期：2026-11-13
-> 版本说明：v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
+> 版本：v1.7
+> 文档日期：2026-11-16
+> 版本说明：v1.7 补全 `libnppc` 核心 API 并新增 FFmpeg `scale_npp` 端到端矩阵；AMD 侧 40/40 case 重复运行逐字节一致，NVIDIA golden 待补。v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
 > 目标：让基于 NPP 的 CUDA 应用在自研驱动环境上重编译后能跑；P0 只覆盖 FFmpeg `scale_npp` 实际使用的 3 个函数。
 > 实现底座：HIP kernel（落在 GFX 通用计算引擎），不依赖 VPE 硬件。
 > 职责：本文是 NPP 能力边界、VPE 对比、许可路线、库组织与实现方案的唯一权威文档。P0 符号范围见 [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) §0.4。
-> 状态：**Stage A 核心数值验收通过**：AMD shim 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过。构建头文件已固定为 CUDA/NPP 12.0.1.104。FFmpeg nonfree 构建按交付边界由客户自行完成，我方只交付芯片和驱动、不随产品分发。剩余：真实业务/长稳/目标平台。
+> 状态：**Stage A 核心数值验收通过**：AMD shim 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过；`libnppc` 核心 API 已实现并通过探针。构建头文件已固定为 CUDA/NPP 12.0.1.104。FFmpeg nonfree 构建按交付边界由客户自行完成，我方只交付芯片和驱动、不随产品分发。FFmpeg 端到端矩阵已在 AMD 侧建立（40/40 可重复），NVIDIA golden 待补。剩余：端到端 NVIDIA 对照、真实业务/长稳/目标平台。
 
 ---
 
@@ -369,7 +369,7 @@ shim 的 `.cpp` 里 `#include <nppi.h>`，函数定义签名直接来自该头�
 
 | 库 | 需实现的函数 | 说明 |
 |---|---|---|
-| `libnppc.so.11` | `nppGetStreamContext` / `nppSetStream` / `nppGetVersion` 等 | 核心，必须 |
+| `libnppc.so.11` | `nppGetLibVersion` / 设备查询 / `nppGetStream` / `nppSetStream` / `nppGetStreamContext`（12.0.1.104 头的全部核心 API） | 核心，必须 |
 | `libnppig.so.11` | `nppiResizeSqrPixel_8u_C1R` | scale_npp 缩放 |
 | `libnppicc.so.11` | `nppiYCbCr420_8u_P2P3R` + `nppiYCbCr420_8u_P3P2R` | NV12↔planar 转换 |
 | `libnppidei.so.11` | 占位（导出空符号集） | FFmpeg 链接但未调用 |
@@ -416,7 +416,7 @@ ABI 必须一致：`NppStatus`、`Npp8u/Npp16u/Npp32f/Npp64f`、`NppiSize`、`Np
 
 | 函数 | 所属库 | HIP kernel 要点 |
 |---|---|---|
-| `nppGetStreamContext` / `nppSetStream` / `nppGetVersion` | nppc | host 侧填结构体 |
+| `nppGetLibVersion` / `nppGetGpu*` / `nppGetStream` / `nppSetStream` / `nppGetStreamContext` | nppc | host 侧填结构体，设备字段来自 HIP |
 | `nppiResizeSqrPixel_8u_C1R` | nppig | 每线程一目标像素，按 `interp_algo` 反向映射与滤波；阶段 A 为 NN/linear/cubic，处理 ROI/step/pitch |
 | `nppiYCbCr420_8u_P2P3R` | nppicc | NV12（2 平面）→ YUV420（3 平面），UV 去交织 |
 | `nppiYCbCr420_8u_P3P2R` | nppicc | YUV420（3 平面）→ NV12（2 平面），UV 交织 |
@@ -484,21 +484,23 @@ cuvidDecodePicture（libva 解码到 VAAPI surface）
 | NVIDIA 参考 | 26 项 NPP API 直测 | RTX 4060 | ✅ 全部成功，结果见 `docs/evidence/results/npp_results.json` |
 | 插值阶段 A 参考 | cubic/linear/NN 的多尺寸、ROI、step、边界 golden | NVIDIA | ✅ NPP 11.5.1.107，32 条，重复运行稳定 |
 | 插值阶段 A 实现 | 3 函数 + nppc；FFmpeg 默认及 `nn/linear/cubic` | AMD | ✅ 与 golden 32/32 条目、2,490,624 bytes 逐字节一致 |
+| `libnppc` 核心 API | 版本/设备/SM/线程/名称/stream/stream context | AMD | ✅ 探针全部通过（`nppc_core_probe`） |
 | FFmpeg P0 | `scale_npp` 跑通 NV12 缩放/转色 | AMD | ✅ 独立 nonfree 构建中 `scale_npp` 已列出并执行；P2P3/P3P2 双后端逐字节通过，三种 resize 功能通过 |
+| FFmpeg 端到端 | 5 尺寸 × nn/linear/cubic/default × nv12/yuv420p | AMD | ✅ 40/40 case、26,307,120 bytes，每 case 重复 2 次逐字节一致；NVIDIA golden 待补 |
 | 插值阶段 B/C | FFmpeg 剩余选项、NPP 全部 interpolation flags | AMD + NVIDIA | ❌ 未开始；未实现模式显式报错 |
 | zero-copy | 解码 → NPP 处理链路 | AMD | ❌ 未开始 |
 
 NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_nvidia_results.md`；AMD 侧 VPP 结果（`npp_vpp_amd_results.md` / `vpp_results.json`）仍未补齐。
 
-阶段 A 的统一参考/候选探针、NVIDIA golden 生成步骤和逐字节比较器见 [tests/npp/README.md](../../tests/npp/README.md)。NVIDIA golden 见 [NPP Stage A NVIDIA 11.5 golden](../evidence/NPP_StageA_NVIDIA_11.5_golden/README.md)，AMD 32/32 对比结果见 [NPP Stage A AMD 对比](../evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
+阶段 A 的统一参考/候选探针、NVIDIA golden 生成步骤和逐字节比较器见 [tests/npp/README.md](../../tests/npp/README.md)。NVIDIA golden 见 [NPP Stage A NVIDIA 11.5 golden](../evidence/NPP_StageA_NVIDIA_11.5_golden/README.md)，AMD 32/32 对比结果见 [NPP Stage A AMD 对比](../evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。`libnppc` 探针见 `tests/npp/nppc_core_probe.cpp`；FFmpeg 端到端矩阵见 `tests/npp/run_ffmpeg_scale_npp.sh` 与 `compare_ffmpeg_scale_npp.py`，AMD 侧结果见 [FFmpeg scale_npp AMD 2026-11-16](../evidence/NPP_FFmpeg_scale_npp_AMD_2026-11-16/README.md)。
 
 ## 15. 风险与待办
 
 1. **法务路线**已选路线 A；落地时确认 shim 产物不含任何 NPP 头文件。
-2. **NppStreamContext 字段映射**：`hipGetDeviceProperties` 能否填全所有字段（尤其 MultiProcessorCount/ComputeCapability）需实测。
+2. **NppStreamContext 字段映射**：已用 `hipGetDeviceProperties` 填充全部公开字段，并通过 `nppc_core_probe` 与独立查询交叉校验；compute capability 报告 HIP 实际值（与 `cuda_shim` 的 `cuDeviceComputeCapability` 一致）。
 3. **scratch buffer / GetBufferSize 语义**：逐函数确认是否需要真实临时显存。
 4. **NPP 库完整性**：P0 只需 5 个库（3 非空 + 2 占位）；完整兼容需 11 个 `.so` 全部产出（占位库也要导出符号，否则链接失败）。
-5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过，但真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
+5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过；FFmpeg 端到端 40 case 已在 AMD 侧证明可重复，尚缺 NVIDIA 逐字节对照。真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
 6. **插值范围**：最终覆盖全部 NPP interpolation flag，但分阶段实现；必须先完成阶段 A（cubic/NN/linear）的 NVIDIA 参考和 FFmpeg 验证，再扩展 B/C。
 7. **构建前置条件**：最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 NPP 11.5 头文件重建。运行时 ABI/SONAME 与数值 golden 仍以 NPP 11.5.1.107 为兼容基线；两者职责不同。仓库不会分发 NVIDIA 专有头文件。
 8. **FFmpeg nonfree 与交付边界**：FFmpeg configure 将 `libnpp` 列在 nonfree 列表，`--enable-libnpp` 必须同时 `--enable-nonfree`，产物标记为 nonfree/unredistributable。产品交付范围是**芯片和驱动**，不捆绑启用 NPP 的 FFmpeg、NPP 头文件或其他 nonfree 构建产物；客户自行构建该 FFmpeg 并承担相应许可合规。任何情况下都不能把该构建描述为“LGPL 干净构建”或随驱动分发。
@@ -513,8 +515,9 @@ NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_
 | VPE 驱动后端 | `src/gallium/drivers/radeonsi/si_vpe.c` |
 | VAAPI 滤镜查询 | `vlVaQueryVideoProcFilters`（`frontends/va/surface.c`） |
 | NPP 直测程序 | `benchmarks/npp/npp_benchmark.cpp` |
-| NPP Stage A HIP shim | `npp_shim/src/nppig_resize.cpp`、`npp_shim/src/nppicc_color.cpp`、`npp_shim/Makefile` |
-| NPP 参考/候选探针与比较器 | `tests/npp/npp_stage_a_probe.cpp`、`tests/npp/compare_stage_a.py` |
+| NPP Stage A HIP shim | `npp_shim/src/nppig_resize.cpp`、`npp_shim/src/nppicc_color.cpp`、`npp_shim/src/nppc_core.cpp`、`npp_shim/Makefile` |
+| NPP 参考/候选探针与比较器 | `tests/npp/npp_stage_a_probe.cpp`、`tests/npp/compare_stage_a.py`、`tests/npp/nppc_core_probe.cpp` |
+| FFmpeg scale_npp 端到端矩阵 | `tests/npp/run_ffmpeg_scale_npp.sh`、`tests/npp/compare_ffmpeg_scale_npp.py` |
 | VPP 直测程序 | `benchmarks/vpp/vpp_benchmark.c` |
 | NPP/VPP 矩阵脚本 | `benchmarks/scripts/test_npp_vpp.sh` |
 | NPP 结果 | `docs/evidence/results/npp_results.json` |

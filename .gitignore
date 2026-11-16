@@ -43,6 +43,7 @@ tests/sync/verify_semaphore_async
 tests/vulkan-video/basic/verify_vulkan_video
 tests/vulkan-video/full/verify_vulkan_video_full
 tests/npp/npp_stage_a_probe
+tests/npp/nppc_core_probe
 
 # NPP shim shared objects, object files and generated Stage A probe output
 npp_shim/build/

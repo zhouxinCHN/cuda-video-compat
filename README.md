@@ -115,7 +115,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 - FFmpeg 宿主结果扩展到真实业务应用、不同线程/队列配置和长时间运行；
 - 多流、seek/flush、动态分辨率、P010/奇数分辨率；
 - 异步跨栈 fence；
-- NPP 联合链路：Stage A shim 与 NVIDIA NPP 11.5.1.107 golden 32/32 条目逐字节一致；最终构建头文件固定为 CUDA/NPP 12.0.1.104，无需 11.5 头文件重建；FFmpeg `scale_npp` 和双后端 P2P3/P3P2 已打通。最终覆盖全部 interp_algo；FFmpeg 将 libnpp 标记 nonfree，按交付边界由客户自行构建、我方不随芯片/驱动分发；编码链路（实验 D 输出异常，暂停）；
+- NPP 联合链路：Stage A shim 与 NVIDIA NPP 11.5.1.107 golden 32/32 条目逐字节一致；最终构建头文件固定为 CUDA/NPP 12.0.1.104，无需 11.5 头文件重建；`libnppc` 核心 API 已补全并通过探针；FFmpeg `scale_npp` 和双后端 P2P3/P3P2 已打通，端到端 40 case 在 AMD 侧重复运行逐字节一致（NVIDIA golden 待补）。最终覆盖全部 interp_algo；FFmpeg 将 libnpp 标记 nonfree，按交付边界由客户自行构建、我方不随芯片/驱动分发；编码链路（实验 D 输出异常，暂停）；
 - 目标平台、1/8 路 30 分钟稳定性、真实业务性能；
 - P0 原始运行命令、stdout/环境版本仍需归档。
 

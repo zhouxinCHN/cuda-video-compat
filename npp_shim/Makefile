@@ -49,8 +49,11 @@ check-headers:
 $(BUILD_DIR):
 	@mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/nppc_core.o: src/nppc_core.cpp $(BUILD_DIR)
+$(BUILD_DIR)/nppc_core.o: src/nppc_core.cpp src/npp_gpu_bridge.h $(BUILD_DIR)
 	$(CXX) $(NPP_CXXFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/nppc_core_hip.o: src/nppc_core_hip.cpp src/npp_gpu_bridge.h $(BUILD_DIR)
+	$(HIPCC) $(HIP_CXXFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/nppig_resize.o: src/nppig_resize.cpp src/npp_common.h src/npp_gpu_bridge.h $(BUILD_DIR)
 	$(CXX) $(NPP_CXXFLAGS) -c $< -o $@
@@ -67,8 +70,8 @@ $(BUILD_DIR)/nppicc_color_hip.o: src/nppicc_color_hip.cpp src/npp_gpu_bridge.h $
 $(BUILD_DIR)/npp_placeholder.o: src/npp_placeholder.cpp $(BUILD_DIR)
 	$(CXX) $(NPP_CXXFLAGS) -c $< -o $@
 
-libnppc.so.11: $(BUILD_DIR)/nppc_core.o
-	$(CXX) -shared $^ -o $@ $(SONAME)
+libnppc.so.11: $(BUILD_DIR)/nppc_core.o $(BUILD_DIR)/nppc_core_hip.o
+	$(CXX) -shared $^ -o $@ $(SONAME) $(HIP_LINK)
 
 libnppig.so.11: $(BUILD_DIR)/nppig_resize.o $(BUILD_DIR)/nppig_resize_hip.o
 	$(CXX) -shared $^ -o $@ $(SONAME) $(HIP_LINK) -lm
@@ -83,7 +86,14 @@ libnppif.so.11: $(BUILD_DIR)/npp_placeholder.o
 	$(CXX) -shared $^ -o $@ $(SONAME)
 
 check-symbols:
-	@nm -D --defined-only libnppc.so.11 | grep nppGetLibVersion
+	@for sym in nppGetLibVersion nppGetGpuNumSMs nppGetMaxThreadsPerBlock \
+	            nppGetMaxThreadsPerSM nppGetGpuDeviceProperties nppGetGpuName \
+	            nppGetStream nppSetStream nppGetStreamContext \
+	            nppGetStreamNumSMs nppGetStreamMaxThreadsPerSM; do \
+		nm -D --defined-only libnppc.so.11 | grep -q "$$sym" || { \
+			echo "MISSING nppc symbol: $$sym" >&2; exit 1; }; \
+	done
+	@echo "nppc core symbols exported"
 	@nm -D --defined-only libnppig.so.11 | grep nppiResizeSqrPixel_8u_C1R
 	@nm -D --defined-only libnppicc.so.11 | grep nppiYCbCr420_8u_P2P3R
 	@nm -D --defined-only libnppicc.so.11 | grep nppiYCbCr420_8u_P3P2R

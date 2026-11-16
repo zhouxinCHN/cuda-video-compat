@@ -56,6 +56,24 @@ int launch_copy_y(const std::uint8_t *src, int src_step,
                   std::uint8_t *dst, int dst_step,
                   int width, int height);
 
+// Device information used by the libnppc core API. Filled by the HIP runtime;
+// the host side mirrors it into NppStreamContext and the nppGetGpu* queries.
+struct DeviceInfo {
+    int device_id;
+    int multi_processor_count;
+    int max_threads_per_multi_processor;
+    int max_threads_per_block;
+    std::uint64_t shared_mem_per_block;
+    int compute_capability_major;
+    int compute_capability_minor;
+    char name[256];
+};
+
+// device_id < 0 means "the active device".
+int query_device(int device_id, DeviceInfo *info);
+
+int device_synchronize();
+
 } // namespace npp_gpu
 
 #endif // CUDA_SHIM_NPP_GPU_BRIDGE_H

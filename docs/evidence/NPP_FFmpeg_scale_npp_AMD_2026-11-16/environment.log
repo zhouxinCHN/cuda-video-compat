@@ -1,0 +1,17 @@
+date=2026-11-16T10:39:51+08:00
+ffmpeg=/tmp/ffmpeg-npp-src/ffmpeg
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+built with gcc 13 (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+configuration: --enable-vulkan --enable-libshaderc --enable-vaapi --enable-libdav1d --enable-libvpx --enable-hwaccel='h264_vaapi,hevc_vaapi,vp9_vaapi,av1_vaapi' --enable-hwaccel='h264_vulkan,hevc_vulkan,av1_vulkan' --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --enable-x86asm --disable-static --enable-shared --disable-doc --enable-nonfree --enable-libnpp --disable-filter=scale2ref_npp --disable-filter=transpose_npp --disable-filter=sharpen_npp --extra-cflags=-I/usr/include --extra-ldflags='-L/home/mark/cuda-video-compat/npp_shim -Wl,-rpath,/home/mark/cuda-video-compat/npp_shim' --prefix=/tmp/ffmpeg-npp-install
+--- ffmpeg npp linkage ---
+	libnppig.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppig.so.11 (0x00007530462b0000)
+	libnppicc.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppicc.so.11 (0x00007530462a7000)
+	libamdhip64.so.7 => /opt/rocm-7.2.4/lib/libamdhip64.so.7 (0x0000753040600000)
+--- libavfilter npp linkage ---
+	libnppig.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppig.so.11 (0x00007c0d11698000)
+	libnppicc.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppicc.so.11 (0x00007c0d1168f000)
+	libamdhip64.so.7 => /opt/rocm-7.2.4/lib/libamdhip64.so.7 (0x00007c0d0ba00000)
+LD_LIBRARY_PATH=/tmp/ffmpeg-npp-src/libavfilter:/tmp/ffmpeg-npp-src/libavutil:/tmp/ffmpeg-npp-src/libavcodec:/tmp/ffmpeg-npp-src/libavformat:/tmp/ffmpeg-npp-src/libswscale:/tmp/ffmpeg-npp-src/libswresample:/tmp/ffmpeg-npp-src/libavdevice:/home/mark/cuda-video-compat/npp_shim:/home/mark/cuda-video-compat/cuda_shim:/opt/rocm-7.2.4/lib
+npp_runtime=shim
+npp_library=	libnppig.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppig.so.11 (0x00007e51e7ff6000)
+source_sha256=19ec213dafde22863f5abdb53e4b91f668264c244bcf6e5cdcebd83aa4b6caf6
