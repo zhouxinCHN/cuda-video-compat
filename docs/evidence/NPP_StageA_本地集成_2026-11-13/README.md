@@ -4,7 +4,8 @@
 >
 > 环境：AMD Radeon RX 7900 XTX / ROCm 7.2.4 / Mesa 25.2.8。
 > 构建头文件：Ubuntu `nvidia-cuda-dev` **12.0.1.104**（`/usr/include`，NPP 12）。
-> 目标兼容基线：NPP **11.5.1.107**。版本差异仍未消除。
+> 目标兼容基线：NPP **11.5.1.107**。
+> **后续决策（2026-11-13）**：最终构建头文件固定为 CUDA/NPP 12.0.1.104，此前“最终必须用 11.5 头文件复核”的要求已取消；11.5.1.107 仅保留为运行时 ABI/SONAME 与数值 golden。
 > 本机没有 NVIDIA GPU，`nvidia-smi` 不存在，因此没有 NVIDIA NPP golden。
 > 代码基线：`062a263` + 当前未提交的 NPP Stage A 变更。
 
@@ -61,7 +62,7 @@
 ## 未通过 / 阻塞
 
 1. **没有 NVIDIA GPU，未生成 NPP golden**。因此 NN/linear/cubic 的坐标、cubic 系数、边界与舍入仍未证明与 NPP 逐字节一致。
-2. **构建头文件为 NPP 12.0.1.104，不是目标 NPP 11.5.1.107**。ABI 签名当前可编译，但最终必须用 11.5 头文件/环境复核。
+2. ~~最终必须用 11.5 头文件/环境复核~~：**已取消（2026-11-13 决策）**。最终构建头文件固定为 CUDA/NPP 12.0.1.104；11.5.1.107 仅作为运行时 ABI/SONAME 与数值 golden。
 3. **FFmpeg 的 libnpp 是 nonfree**：当前集成配置不可再分发；许可证/发布路线需重新决策。
 4. `libnppc` 只实现版本探测；stream context 等 API 未实现。
 5. 阶段 A 尚未完成 FFmpeg 全部 resize 用例的 NVIDIA 对照。

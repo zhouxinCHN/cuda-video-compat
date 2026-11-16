@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.6
+> 版本：v4.7
 > 文档日期：2026-11-13
 > 技术事实截止：2026-11-12
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -102,7 +102,7 @@
 | 解码格式 | H.264、4:2:0、8-bit、NV12 | 不扩展至其他 codec、位深或色度格式 |
 | 码流能力 | I/P/B、DPB、crop、seek/flush、动态分辨率、长期参考 | 场/MBAFF 遇到时明确返回不支持；不静默输出错误帧 |
 | CUVID API | 22 个动态加载符号形态；FFmpeg 直接使用的 9 个功能接口 | 清单见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
-| NPP API | `nppiResizeSqrPixel_8u_C1R`、`nppiYCbCr420_8u_P2P3R`、`nppiYCbCr420_8u_P3P2R` 及必要 nppc | CUDA/NPP 11.5 ABI；resize 插值先做 FFmpeg 核心 cubic/NN/linear，再扩到全部 FFmpeg 选项和 NPP flags；与 NVIDIA 11.5.1.107 逐字节一致 |
+| NPP API | `nppiResizeSqrPixel_8u_C1R`、`nppiYCbCr420_8u_P2P3R`、`nppiYCbCr420_8u_P3P2R` 及必要 nppc | 运行时 ABI/SONAME 为 CUDA/NPP 11.5，最终构建头文件为 12.0.1.104；resize 插值先做 FFmpeg 核心 cubic/NN/linear，再扩到全部 FFmpeg 选项和 NPP flags；与 NVIDIA 11.5.1.107 逐字节一致 |
 | libcuda | FFmpeg 解码与 NPP 联合链路所需内部支撑 | 不作为独立完整 CUDA driver API 交付 |
 | 数据通路 | LINEAR surface + DMA-BUF + HIP 导入，同进程 | 运行时校验 plane、pitch、offset、modifier 和 size |
 | 同步 | `vaSyncSurface` + HIP 同步的主机同步基线 | DRM 异步 fence 不属于 P0 |
@@ -749,7 +749,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 关键约束：
 
 1. **SONAME**：必须是 `libnpp<子库>.so.11`；FFmpeg 是编译期链接，`ldd` 直接依赖。
-2. **头文件与发布边界**：路线 A——shim 只产 `.so`，构建时使用另行提供的授权 CUDA/NPP 11.5 头文件；发布物不含专有头文件。法务结论以[总体方案](CUDA兼容层总体方案.md)为准。
+2. **头文件与发布边界**：路线 A——shim 只产 `.so`，最终构建固定使用 CUDA/NPP 12.0.1.104 头文件（不再要求 11.5 头文件重建）；发布物不含专有头文件。运行时 ABI/SONAME 与数值 golden 仍为 NPP 11.5.1.107。法务结论以[总体方案](CUDA兼容层总体方案.md)为准。
 3. **ABI**：`NppStatus`、`Npp8u/Npp16u/Npp32f/Npp64f`、`NppiSize`、`NppiRect`、`NppStreamContext` 必须一致。
 4. **数值**：输出必须与 NVIDIA 11.5.1.107 参考逐字节一致；不得用“视觉效果接近”放行。
 5. **launch 路径**：NPP 的 `.so` 直接链 `libamdhip64.so`，用 `hipLaunchKernel`/`hipModuleLaunchKernel`，不要走 `libcuda` 的 `cuLaunchKernel` stub。
@@ -774,7 +774,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 - **Stage A 数值验收通过**：AMD candidate 与 NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致，覆盖 full/ROI、pitch、padding 和三种 resize 算法。
 - FFmpeg 联合链路：P2P3/P3P2 在 VAAPI/Vulkan 两个解码后端均与软件转换逐字节一致；NN/linear/cubic 通过 `scale_npp` 执行。
 - **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，当前集成本地构建不可再分发。发布/客户交付路径需要法务和产品重新决策。
-- 头文件版本为 CUDA 12.0.1.104，数值与 NPP 11.5 golden 一致；最终交付仍应使用授权 NPP 11.5 头文件重建复核。
+- 最终构建头文件固定为 CUDA 12.0.1.104，不再要求 NPP 11.5 头文件重建；运行时 ABI/SONAME 与数值 golden 保持 NPP 11.5.1.107。
 - `libnppc` 当前只提供 `nppGetLibVersion` 链接探测；完整 stream/version 接口待后续增量。
 - 3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；ROI、step、padding、stream、错误语义需补齐。
 - resize 插值范围最终为全部 NPP interpolation flag；实施顺序是 FFmpeg 核心 cubic/NN/linear → FFmpeg 其余选项 → NPP 全部 flags。未实现模式显式失败。
@@ -1135,7 +1135,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
 |---|---|---|---|---|---|
 | R1 | FFmpeg 宿主结果扩展到真实业务 | 320×240 矩阵通过不等于生产线程/队列和长稳 | 32/32 P0 矩阵、双后端零 D2D、严格 PTS | 真实应用、多 slice、1080p/4K、多流和长稳 | 1B–P1 |
-| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 32/32 golden 通过；P2P3/P3P2 双后端通过 | NPP 11.5 头文件重建复核；nonfree 发布方案法务评审见[总体方案](CUDA兼容层总体方案.md) | 第 2 步 |
+| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 32/32 golden 通过；P2P3/P3P2 双后端通过 | nonfree 发布方案法务评审见[总体方案](CUDA兼容层总体方案.md)；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 第 2 步 |
 | R3 | 目标平台差异 | AMD 布局/驱动/性能不能直接外推 | 仅 AMD 验证机 | 目标平台能力检查；运行时能力探测；Gate 见[总体方案](CUDA兼容层总体方案.md) | 0/1B |
 | R4 | 长尾场景 | 多流/seek/flush/crop/动态分辨率/长期参考 | 未覆盖 | 场景矩阵；缺陷收敛 | P1 |
 
@@ -1176,7 +1176,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | G5 | 场/MBAFF 显式不支持 | 已显式返回不支持 | 无 | 符合 P0 边界 | 错误码/日志 |
 | G6 | 多流 parser/VkSequenceCache 键控 | 单序列/单槽 | 多流不可用 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
 | G7 | seek/flush/crop/动态分辨率 | 部分 flush；crop/动态分辨率未验收 | 长尾场景缺口 | P1 阻塞 | 场景矩阵 |
-| G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过 | NPP 11.5 头文件重建、nonfree 发布路径、nppc API、真实业务/长稳 | 核心数值通过 | 逐字节 + 联合链路 |
+| G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过 | nonfree 发布路径、nppc API、真实业务/长稳；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 核心数值通过 | 逐字节 + 联合链路 |
 | G9 | FFmpeg 双路径验收 | 两后端 CUVID CPU/CUDA、NVDEC 安全/零拷贝、PTS 容器全部通过 | 真实业务线程/队列、多 slice、长稳未覆盖 | 生产交付前继续扩展 | 双路径像素/帧数/顺序/资源 |
 | G10 | 目标平台能力门禁 | 仅 AMD 验证机 | 目标平台未跑 | 结论不可外推 | 目标平台能力检查通过；Gate 定义见[总体方案](CUDA兼容层总体方案.md) |
 | G11 | 异步跨栈 fence | 未实现 | 只有主机同步 | 高吞吐受限 | sync_file/syncobj 端到端 |
@@ -1239,6 +1239,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.7（2026-11-13）**：确认最终 NPP 构建头文件固定为 CUDA/NPP 12.0.1.104，删除“用 11.5 头文件重建”待办；11.5.1.107 保留为 ABI/SONAME 与数值 golden。
 - **v4.6（2026-11-13）**：NPP Stage A 与 11.5.1.107 golden 32/32 逐字节一致；反推并实现 NPP fast-cubic/float32/ROI 语义；FFmpeg 与双后端颜色联合链路通过。
 - **v4.5（2026-11-13）**：真实 CUDA/NPP 12 头文件构建 Stage A；FFmpeg `scale_npp` 独立 nonfree 构建加载 shim；P2P3/P3P2 双后端逐字节；补充 nonfree 与 11.5 golden 边界。
 - **v4.4（2026-11-13）**：落地 NPP Stage A HIP shim、五库 SONAME、参考/候选探针和比较器；本地自检通过，NVIDIA golden 与 FFmpeg 集成未完成。

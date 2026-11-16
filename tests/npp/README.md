@@ -14,9 +14,10 @@ golden and candidate output; `manifest.tsv` records geometry and output files.
 NPP ABI host code and GPU-runtime code are split into separate translation units
 because CUDA/NPP and HIP headers define conflicting vector types.
 
-Current status: the shim/probe compile against installed CUDA 12 NPP headers and
-FFmpeg `scale_npp` loads the shim. The AMD candidate matches the NVIDIA NPP
-11.5.1.107 golden byte-for-byte for all 32 entries; P2P3/P3P2 joint chains pass.
+Current status: the final build header baseline is CUDA/NPP 12.0.1.104 and
+FFmpeg `scale_npp` loads the shim. No rebuild with 11.5 headers is required; the
+NVIDIA NPP 11.5.1.107 golden remains the runtime/ABI numerical reference. The
+AMD candidate matches all 32 entries byte-for-byte; P2P3/P3P2 joint chains pass.
 See [AMD vs golden evidence](../../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md).
 
 ## 1. NVIDIA golden host
@@ -152,4 +153,4 @@ done
    default cubic execute, default equals explicit cubic;
 4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI and Vulkan;
 5. ⏳ FFmpeg nonfree distribution path needs a legal decision;
-6. ⏳ final rebuild against authorized NPP 11.5 headers.
+6. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild.

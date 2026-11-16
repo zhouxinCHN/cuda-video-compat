@@ -93,7 +93,7 @@ FFmpeg 7.1 `vf_scale_npp.c` 的直接 NPP 调用固定为：
 - `nppiYCbCr420_8u_P2P3R`
 - `nppiYCbCr420_8u_P3P2R`
 
-另需提供上述调用及 FFmpeg 构建/运行必需的 nppc 接口。P0 使用 CUDA/NPP 11.5 ABI，SONAME 为 `libnpp*.so.11`，不承诺完整 11 个子库。NVIDIA 参考环境为 RTX 4060、驱动 595.99.02、CUDA Runtime 11.5、NPP 11.5.1.107；P0 输出以同版本参考为准，要求逐字节一致。NPP 的实现与许可细节见 [NPP 兼容方案与 VPE 对比](NPP兼容方案与VPE对比.md)。
+另需提供上述调用及 FFmpeg 构建/运行必需的 nppc 接口。P0 运行时 ABI/SONAME 为 CUDA/NPP 11.5（`libnpp*.so.11`）；最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建。不承诺完整 11 个子库。NVIDIA 参考环境为 RTX 4060、驱动 595.99.02、CUDA Runtime 11.5、NPP 11.5.1.107；P0 输出以同版本参考为准，要求逐字节一致。NPP 的实现与许可细节见 [NPP 兼容方案与 VPE 对比](NPP兼容方案与VPE对比.md)。
 
 ### 0.5 不纳入 P0 的承诺
 

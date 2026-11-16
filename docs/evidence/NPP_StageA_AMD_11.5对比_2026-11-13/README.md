@@ -2,7 +2,7 @@
 
 > Golden：`docs/evidence/NPP_StageA_NVIDIA_11.5_golden/`（RTX 4060 / NPP 11.5.1.107）
 > Candidate：当前 AMD HIP shim（RX 7900 XTX / ROCm 7.2.4）
-> 构建头文件：本机 CUDA/NPP 12.0.1.104；目标 ABI/golden 为 NPP 11.5.1.107
+> 构建头文件：本机 CUDA/NPP 12.0.1.104（**最终构建基线，无需 11.5 头文件重建**）；运行时 ABI/golden 为 NPP 11.5.1.107
 > 代码基线：`fc1091d` + 本轮 resize 语义修正
 
 ## 结果
@@ -45,7 +45,7 @@ w3 = -u(1-u)(1+u)/6
 ## 合规与边界
 
 - FFmpeg 的 `libnpp` 仍被上游标记 **nonfree**；本地 `scale_npp` 构建不可再分发。
-- 当前 shim 用 CUDA/NPP 12 头文件编译；由于函数 ABI 未变，能够对 NPP 11.5 golden 全量匹配，但最终交付仍应在授权 NPP 11.5 头文件环境下重建一次并记录。
+- 最终构建头文件固定为 CUDA/NPP 12.0.1.104；由于 P0 函数 ABI 未变，shim 对 NPP 11.5 golden 全量匹配。**不再要求**在 NPP 11.5 头文件环境下重建；11.5.1.107 仅作为运行时 ABI/SONAME 与数值 baseline。
 - Stage A 只覆盖 NN/linear/cubic；FFmpeg 其余 `interp_algo` 和 NPP 其余 interpolation flags 尚未实现。
 - 真实业务线程/队列、1080p/4K、长稳和目标平台仍未验收。
 
