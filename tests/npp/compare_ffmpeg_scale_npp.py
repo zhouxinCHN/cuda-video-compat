@@ -1,12 +1,17 @@
 #!/usr/bin/env python3
 """Compare two run_ffmpeg_scale_npp.sh matrices byte-for-byte.
 
-Usage: compare_ffmpeg_scale_npp.py GOLDEN_DIR CANDIDATE_DIR [--verbose]
+Usage: compare_ffmpeg_scale_npp.py GOLDEN_DIR CANDIDATE_DIR [--verbose] [--hashes-only]
 
 The golden directory is produced on an NVIDIA host with real NPP; the candidate
 directory is produced on the AMD host with the NPP shim. Both must use the same
 source fixture (source.sha256), case list and per-case metadata. Every raw
 output must be byte-identical.
+
+--hashes-only compares the per-case SHA256 recorded in manifest.tsv instead of
+re-reading the raw files. Use it when the golden host only published the
+manifest and hashes (raw outputs are not archived in git). Byte comparison
+remains the default whenever both raw trees are available.
 
 Exit code: 0 = identical, 1 = mismatch, 2 = malformed input.
 """
@@ -65,6 +70,7 @@ def digest(path):
 
 def main(argv):
     verbose = "--verbose" in argv
+    hashes_only = "--hashes-only" in argv
     args = [a for a in argv[1:] if not a.startswith("--")]
     if len(args) != 2:
         print(__doc__)
@@ -95,14 +101,15 @@ def main(argv):
     if extra:
         errors.append(f"candidate has {len(extra)} unexpected case(s): {extra[:5]}")
 
-    golden_files = {p.name for p in golden.glob("*.yuv")}
-    cand_files = {p.name for p in candidate.glob("*.yuv")}
-    if golden_files != cand_files:
-        errors.append(
-            "raw file set differs: missing "
-            f"{sorted(golden_files - cand_files)[:5]}, extra "
-            f"{sorted(cand_files - golden_files)[:5]}"
-        )
+    if not hashes_only:
+        golden_files = {p.name for p in golden.glob("*.yuv")}
+        cand_files = {p.name for p in candidate.glob("*.yuv")}
+        if golden_files != cand_files:
+            errors.append(
+                "raw file set differs: missing "
+                f"{sorted(golden_files - cand_files)[:5]}, extra "
+                f"{sorted(cand_files - golden_files)[:5]}"
+            )
 
     total_bytes = 0
     compared = 0
@@ -117,12 +124,24 @@ def main(argv):
             # Metadata mismatch makes byte comparison of this case meaningless.
             continue
 
+        expected_size = int(g["bytes"])
+        if hashes_only:
+            if g["sha256"] != c["sha256"]:
+                errors.append(
+                    f"{case}: SHA256 {g['sha256'][:16]} != {c['sha256'][:16]}"
+                )
+                continue
+            total_bytes += expected_size
+            compared += 1
+            if verbose:
+                print(f"PASS(hash): {case} {expected_size} bytes")
+            continue
+
         gfile, cfile = golden / f"{case}.yuv", candidate / f"{case}.yuv"
         if not gfile.is_file() or not cfile.is_file():
             errors.append(f"{case}: missing raw output")
             continue
 
-        expected_size = int(g["bytes"])
         if gfile.stat().st_size != expected_size:
             errors.append(f"{case}: golden size {gfile.stat().st_size} != manifest {expected_size}")
             continue
@@ -152,10 +171,16 @@ def main(argv):
             print(f"FAIL: ... and {len(errors) - 20} more")
         return 1
 
-    print(
-        f"PASS: {compared} cases and {total_bytes} bytes are bit-identical "
-        f"({golden} vs {candidate})"
-    )
+    if hashes_only:
+        print(
+            f"PASS(hash-only): {compared} cases and {total_bytes} bytes have "
+            f"identical SHA256 ({golden} vs {candidate})"
+        )
+    else:
+        print(
+            f"PASS: {compared} cases and {total_bytes} bytes are bit-identical "
+            f"({golden} vs {candidate})"
+        )
     return 0
 
 

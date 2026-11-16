@@ -211,7 +211,10 @@ python3 tests/npp/compare_ffmpeg_scale_npp.py \
 
 The comparator requires the same source fixture hash, case list and per-case
 metadata, then byte-compares all raw outputs. It exits non-zero on the first
-source mismatch or any differing byte, reporting the byte offset.
+source mismatch or any differing byte, reporting the byte offset. When the
+golden host publishes only `manifest.tsv` and hashes (raw outputs are not
+archived in git), add `--hashes-only` to compare the recorded per-case SHA256
+values instead of re-reading raw files.
 
 The script uses lavfi input on purpose: rawvideo input plus `hwupload_cuda` is
 nondeterministic on the AMD shim (see the note in section 4), and that defect
