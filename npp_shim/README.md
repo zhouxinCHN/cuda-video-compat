@@ -21,9 +21,10 @@ return an explicit error.
   from this directory and exposes `scale_npp`.
 - P2P3 and P3P2 joint chains are byte-identical to software conversion on both
   VAAPI and Vulkan decode backends.
-- **NVIDIA NPP 11.5 golden comparison is not yet complete.** The exact resize
-  coordinate, coefficient, edge and rounding semantics must be tuned against
-  `tests/npp` golden output before Stage A can be declared accepted.
+- **NPP 11.5.1.107 golden comparison passes**: 32/32 manifest entries and
+  2,490,624 bytes are byte-identical. The implementation reproduces NPP's
+  absolute-coordinate/ROI semantics, float32 rounding, and its non-Catmull
+  fast-cubic four-tap weights.
 - **FFmpeg treats `libnpp` as nonfree**: `--enable-libnpp` requires
   `--enable-nonfree` and the result is marked unredistributable. The current
   integration is for internal validation only.
@@ -60,16 +61,15 @@ The shared probe `tests/npp/npp_stage_a_probe.cpp` runs unchanged on NVIDIA NPP
 and on these shims. See [tests/npp/README.md](../tests/npp/README.md) for the
 golden/candidate workflow.
 
-Stage A acceptance requires:
+Stage A acceptance status:
 
-1. NVIDIA 11.5.1.107 reference outputs for all probe cases;
-2. byte-identical AMD shim outputs, including padding and ROI;
-3. FFmpeg `scale_npp` with `interp_algo=nn/linear/cubic` and the default cubic
-   path;
-4. decode → NPP output checks on both peer decode backends (P2P3/P3P2 already
-   pass; resize pending golden);
-5. a legal/build decision for the FFmpeg nonfree linkage, or a different NPP
-   integration route.
+1. ✅ NVIDIA 11.5.1.107 reference outputs for all probe cases;
+2. ✅ byte-identical AMD shim outputs: 32/32 entries, 2,490,624 bytes;
+3. ✅ FFmpeg `scale_npp` with `interp_algo=nn/linear/cubic`; default equals
+   explicit cubic;
+4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI/Vulkan;
+5. ⏳ legal/build decision for the FFmpeg nonfree linkage, plus a final rebuild
+   against authorized NPP 11.5 headers.
 
 ## Known limitations
 

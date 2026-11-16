@@ -1,0 +1,42 @@
+=== date ===
+2026-11-16T09:41:10+08:00
+
+=== git ===
+fc1091d
+ M npp_shim/src/npp_gpu_bridge.h
+ M npp_shim/src/nppig_resize.cpp
+ M npp_shim/src/nppig_resize_hip.cpp
+ M tests/npp/compare_stage_a.py
+?? "docs/evidence/NPP_StageA_AMD_11.5\345\257\271\346\257\224_2026-11-13/"
+
+=== NPP headers / libs ===
+libnppicc12:amd64	12.0.1.104~12.0.1-4build4
+libnppig12:amd64	12.0.1.104~12.0.1-4build4
+nvidia-cuda-dev:amd64	12.0.146~12.0.1-4build4
+
+=== shim symbols ===
+00000000000011b0 T nppiResizeSqrPixel_8u_C1R
+00000000000011c0 T nppiYCbCr420_8u_P2P3R
+00000000000012f0 T nppiYCbCr420_8u_P3P2R
+0000000000001100 T nppGetLibVersion
+
+=== FFmpeg NPP deps ===
+	libswscale.so.8 => /tmp/ffmpeg-npp-src/libswscale/libswscale.so.8 (0x000071c61c560000)
+	libavformat.so.61 => /tmp/ffmpeg-npp-src/libavformat/libavformat.so.61 (0x000071c61c200000)
+	libavcodec.so.61 => /tmp/ffmpeg-npp-src/libavcodec/libavcodec.so.61 (0x000071c61ac00000)
+	libswresample.so.5 => /tmp/ffmpeg-npp-src/libswresample/libswresample.so.5 (0x000071c61c541000)
+	libavutil.so.59 => /tmp/ffmpeg-npp-src/libavutil/libavutil.so.59 (0x000071c619a00000)
+	libnppig.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppig.so.11 (0x000071c61c524000)
+	libnppicc.so.11 => /home/mark/cuda-video-compat/npp_shim/libnppicc.so.11 (0x000071c61c51b000)
+
+=== source hashes ===
+708e3f34e3aa49736cb232e2a8aec25cf38105a612b918e7a6eb704e02aef75d  npp_shim/src/nppc_core.cpp
+6c2751bd988245d6954e9c973b0cf2770fb4f5046ea76ae9a5e13178e593b2fe  npp_shim/src/npp_common.h
+06568e34c96f4c1957ace87c62bcf15f7cb91065f0eade2e2baa09671086f6d1  npp_shim/src/npp_gpu_bridge.h
+2b4cf08d00ad70ed4025ffd76658510c7b6f23bb480ac409f26c6170431815e7  npp_shim/src/nppicc_color.cpp
+93cbabaaaa694a6a30174774405fcc1d9b540dd482d0bb7665fca3257e94da26  npp_shim/src/nppicc_color_hip.cpp
+a71d94bd64e26e55eec78d5de3950f9d752767697cc09758c63ccc50411dfd1a  npp_shim/src/nppig_resize.cpp
+c1e35ff779ee26cf39209741bd64336cbe711b54be00573707b4e0cdaca82a6d  npp_shim/src/nppig_resize_hip.cpp
+a0be7320cc22378c859f3b08561bd7ae2a700100a7379d0a35ff7bc18c321028  npp_shim/src/npp_placeholder.cpp
+d74a3533971cb5b3780effde36b9dae3b1ab1c8c0415c01f0d911907efabeb37  tests/npp/compare_stage_a.py
+d8ce978ffcf734b39487970b24bbb298118871fd3d844b9fbb7f65685f98659e  tests/npp/npp_stage_a_probe.cpp

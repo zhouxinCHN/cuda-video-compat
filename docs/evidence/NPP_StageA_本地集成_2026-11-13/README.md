@@ -1,5 +1,7 @@
 # NPP Stage A 本地集成结果（2026-11-13）
 
+> **后续状态**：本目录记录 golden 生成前的本地集成里程碑。NPP 11.5.1.107 golden 与 AMD candidate 随后已完成，32/32 条目逐字节一致，见 [AMD vs NVIDIA golden](../NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
+>
 > 环境：AMD Radeon RX 7900 XTX / ROCm 7.2.4 / Mesa 25.2.8。
 > 构建头文件：Ubuntu `nvidia-cuda-dev` **12.0.1.104**（`/usr/include`，NPP 12）。
 > 目标兼容基线：NPP **11.5.1.107**。版本差异仍未消除。

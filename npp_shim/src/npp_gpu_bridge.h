@@ -21,6 +21,8 @@ enum Status {
 struct ResizeJob {
     const std::uint8_t *src;
     int src_step;
+    int src_full_width;
+    int src_full_height;
     int src_x;
     int src_y;
     int src_width;
@@ -31,10 +33,10 @@ struct ResizeJob {
     int dst_y;
     int dst_width;
     int dst_height;
-    double x_factor;
-    double y_factor;
-    double x_shift;
-    double y_shift;
+    float x_scale;
+    float x_offset;
+    float y_scale;
+    float y_offset;
     int interpolation;
 };
 

@@ -52,7 +52,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 
 2026-11-13 FFmpeg 宿主矩阵修复后：32 RUN / 32 PASS / 0 FAIL / 0 SKIP，双后端 `nvdec-unsafe` 均 D2D=0 且像素一致。结果与原始日志见 [FFmpeg 宿主双后端基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。另有带 PTS 的 30 帧 MP4 严格顺序验证，双后端共 8 种模式 8 PASS / 0 FAIL，见 [PTS 顺序验证](../docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
 
-NPP Stage A：真实 NPP 头文件下 shim 构建成功，独立 FFmpeg `scale_npp` 已加载；P2P3/P3P2 在双解码后端逐字节一致。resize 三算法尚未取得 NVIDIA golden，详见 [NPP Stage A 本地集成](../docs/evidence/NPP_StageA_本地集成_2026-11-13/README.md)。
+NPP Stage A：真实 NPP 头文件下 shim 构建成功，独立 FFmpeg `scale_npp` 已加载；AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目逐字节一致，P2P3/P3P2 在双解码后端也逐字节一致。详见 [AMD vs golden](../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
 
 ## 注意
 

@@ -10,7 +10,7 @@
 - `manifest.tsv` 含 **32 条**有效条目（24 条 resize、8 条颜色转换），对应 **32 个** raw 文件；无缺失或额外 raw 文件。
 - 每个 raw 文件均非空且小于 2 MiB，最大文件为 138240 bytes。
 - 在同一输出目录连续运行两次，`manifest.tsv` 和全部 raw 文件逐一 SHA256 相同。
-- 本目录只记录 NVIDIA golden 的生成与可重复性；尚未执行 AMD shim candidate 比较，不代表 Stage A 全部验收条件已经通过。
+- 本目录只记录 NVIDIA golden 的生成与可重复性。后续 AMD shim candidate 已与全部 32 条 golden 逐字节一致，比较记录见 [AMD vs NVIDIA golden](../NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
 
 ## 环境
 

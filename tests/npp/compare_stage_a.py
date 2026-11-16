@@ -111,7 +111,7 @@ def main() -> int:
         elif args.verbose:
             print(
                 f"PASS {function}/{case}/{variant}/{filename} "
-                f"{len(reference)} bytes sha256={digest(reference)}"
+                f"{len(reference)} bytes sha256={digest(reference_path)}"
             )
 
     if failures:

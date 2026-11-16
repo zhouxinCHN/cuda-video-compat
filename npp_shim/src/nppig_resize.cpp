@@ -27,12 +27,18 @@ extern "C" NppStatus nppiResizeSqrPixel_8u_C1R(
         return NPP_WRONG_INTERSECTION_ROI_ERROR;
     }
 
+    const float x_scale = 1.0f / static_cast<float>(nXFactor);
+    const float y_scale = 1.0f / static_cast<float>(nYFactor);
     npp_gpu::ResizeJob job{
-        pSrc, nSrcStep,
+        pSrc, nSrcStep, oSrcSize.width, oSrcSize.height,
         oSrcROI.x, oSrcROI.y, oSrcROI.width, oSrcROI.height,
         pDst, nDstStep,
         oDstROI.x, oDstROI.y, oDstROI.width, oDstROI.height,
-        nXFactor, nYFactor, nXShift, nYShift, eInterpolation
+        x_scale,
+        0.5f * x_scale - 0.5f + static_cast<float>(nXShift),
+        y_scale,
+        0.5f * y_scale - 0.5f + static_cast<float>(nYShift),
+        eInterpolation
     };
     return status_from_gpu(npp_gpu::launch_resize(job));
 }

@@ -1,12 +1,12 @@
 # NPP 兼容方案与 VPE 后处理对比
 
-> 版本：v1.3
+> 版本：v1.4
 > 文档日期：2026-11-13
-> 版本说明：v1.3 用真实 CUDA/NPP 12 头文件完成 shim 构建、独立 FFmpeg `scale_npp` 链接和双后端 P2P3/P3P2 逐字节验证；发现 FFmpeg 将 libnpp 标记 nonfree；NVIDIA resize golden 仍缺。v1.2 落地 Stage A HIP shim 与探针；v1.1 明确最终覆盖全部插值模式。
+> 版本说明：v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致；反推出 NPP fast-cubic 权重及 float32/ROI 语义。v1.3 完成本地 FFmpeg 集成并发现 nonfree 约束。
 > 目标：让基于 NPP 的 CUDA 应用在自研驱动环境上重编译后能跑；P0 只覆盖 FFmpeg `scale_npp` 实际使用的 3 个函数。
 > 实现底座：HIP kernel（落在 GFX 通用计算引擎），不依赖 VPE 硬件。
 > 职责：本文是 NPP 能力边界、VPE 对比、许可路线、库组织与实现方案的唯一权威文档。P0 符号范围见 [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) §0.4。
-> 状态：方案与 NVIDIA 侧能力实测已完成；**Stage A HIP shim 已用真实 NPP 头文件构建，独立 FFmpeg `scale_npp` 已链接，P2P3/P3P2 在 VAAPI/Vulkan 双后端逐字节通过；resize NN/linear/cubic 尚无 NVIDIA golden，P0 联合链路未完全通过**。
+> 状态：**Stage A 核心数值验收通过**：AMD shim 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过。剩余：NPP 11.5 头文件重建复核、FFmpeg nonfree 发布方案、真实业务/长稳/目标平台。
 
 ---
 
@@ -290,7 +290,7 @@ filters[num++] = VAProcFilterDeinterlacing;   // ← 唯一
 
 NPP 兼容层 = 用 HIP kernel 逐函数重实现 NPP API，跑在通用计算引擎上。VPE 只在极少数重叠项上可选 offload，主体不碰。
 
-P0 只实现 FFmpeg `scale_npp` 需要的 3 个函数 + nppc 初始化；其余 23 项为 P1/P2。**当前已有 Stage A HIP 实现、五个 SONAME 库、参考探针和比较器，但尚无 NVIDIA golden/FFmpeg 链接证据，P0 联合链路未通过。**
+P0 只实现 FFmpeg `scale_npp` 需要的 3 个函数 + nppc 初始化；其余 23 项为 P1/P2。**Stage A 已实现并通过 NVIDIA NPP 11.5.1.107 的 32/32 逐字节比较；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 联合链路已通过。**
 
 函数范围固定，但 `nppiResizeSqrPixel_8u_C1R` 的 `interp_algo` 分阶段覆盖，最终目标是全部 NPP 插值模式：
 
@@ -482,15 +482,15 @@ cuvidDecodePicture（libva 解码到 VAAPI surface）
 | 阶段 | 验证 | 硬件 | 当前状态 |
 |---|---|---|---|
 | NVIDIA 参考 | 26 项 NPP API 直测 | RTX 4060 | ✅ 全部成功，结果见 `docs/evidence/results/npp_results.json` |
-| 插值阶段 A 参考 | cubic/linear/NN 的多尺寸、ROI、step、边界 golden | NVIDIA | ⚠️ 探针已写好；尚未在 NVIDIA 生成 golden |
-| 插值阶段 A 实现 | 3 函数 + nppc；FFmpeg 默认及 `nn/linear/cubic` | AMD | ⚠️ 真实头文件构建、FFmpeg 链接和功能烟测通过；NVIDIA 数值对照未做 |
-| FFmpeg P0 | `scale_npp` 跑通 NV12 缩放/转色 | AMD | ✅ 独立 nonfree 构建中 `scale_npp` 已列出并执行；P2P3/P3P2 双后端逐字节通过，resize 未对 golden |
+| 插值阶段 A 参考 | cubic/linear/NN 的多尺寸、ROI、step、边界 golden | NVIDIA | ✅ NPP 11.5.1.107，32 条，重复运行稳定 |
+| 插值阶段 A 实现 | 3 函数 + nppc；FFmpeg 默认及 `nn/linear/cubic` | AMD | ✅ 与 golden 32/32 条目、2,490,624 bytes 逐字节一致 |
+| FFmpeg P0 | `scale_npp` 跑通 NV12 缩放/转色 | AMD | ✅ 独立 nonfree 构建中 `scale_npp` 已列出并执行；P2P3/P3P2 双后端逐字节通过，三种 resize 功能通过 |
 | 插值阶段 B/C | FFmpeg 剩余选项、NPP 全部 interpolation flags | AMD + NVIDIA | ❌ 未开始；未实现模式显式报错 |
 | zero-copy | 解码 → NPP 处理链路 | AMD | ❌ 未开始 |
 
 NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_nvidia_results.md`；AMD 侧 VPP 结果（`npp_vpp_amd_results.md` / `vpp_results.json`）仍未补齐。
 
-阶段 A 的统一参考/候选探针、NVIDIA golden 生成步骤和逐字节比较器见 [tests/npp/README.md](../../tests/npp/README.md)。本地 shim/FFmpeg 集成结果见 [NPP Stage A 本地集成证据](../evidence/NPP_StageA_本地集成_2026-11-13/README.md)。当前实现不得在 golden 通过前声明 resize 数值兼容。
+阶段 A 的统一参考/候选探针、NVIDIA golden 生成步骤和逐字节比较器见 [tests/npp/README.md](../../tests/npp/README.md)。NVIDIA golden 见 [NPP Stage A NVIDIA 11.5 golden](../evidence/NPP_StageA_NVIDIA_11.5_golden/README.md)，AMD 32/32 对比结果见 [NPP Stage A AMD 对比](../evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)。
 
 ## 15. 风险与待办
 
@@ -498,9 +498,9 @@ NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_
 2. **NppStreamContext 字段映射**：`hipGetDeviceProperties` 能否填全所有字段（尤其 MultiProcessorCount/ComputeCapability）需实测。
 3. **scratch buffer / GetBufferSize 语义**：逐函数确认是否需要真实临时显存。
 4. **NPP 库完整性**：P0 只需 5 个库（3 非空 + 2 占位）；完整兼容需 11 个 `.so` 全部产出（占位库也要导出符号，否则链接失败）。
-5. **P0 联合链路**：Stage A shim 未取得 NVIDIA 逐字节验收，FFmpeg 未链接，当前 P0 结果不包含 NPP 路径。
+5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过，但真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
 6. **插值范围**：最终覆盖全部 NPP interpolation flag，但分阶段实现；必须先完成阶段 A（cubic/NN/linear）的 NVIDIA 参考和 FFmpeg 验证，再扩展 B/C。
-7. **构建前置条件**：开发机可安装授权 CUDA/NPP 头文件；当前使用 CUDA 12.0.1.104 头文件，目标 NPP 11.5.1.107 的最终复核仍待做。仓库不会分发这些头文件。
+7. **构建前置条件**：Stage A candidate 使用 CUDA/NPP 12.0.1.104 头文件构建，数值与 NPP 11.5.1.107 golden 全量一致；最终交付仍需用授权 NPP 11.5 头文件重建一次，确认编译 ABI。仓库不会分发这些头文件。
 8. **FFmpeg nonfree 约束**：FFmpeg configure 将 `libnpp` 列在 nonfree 列表，`--enable-libnpp` 必须同时 `--enable-nonfree`，产物标记为 nonfree/unredistributable。内部测试可接受，发布与再分发方案必须由法务/产品重新决策，不能沿用“LGPL 干净构建”表述。
 9. **NVIDIA golden 前置**：当前机器无 NVIDIA GPU，resize 坐标/系数/舍入无法验收；必须在 NPP 11.5.1.107 参考机运行 `tests/npp` 探针。
 

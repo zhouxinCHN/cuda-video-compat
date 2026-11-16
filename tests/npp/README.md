@@ -15,8 +15,9 @@ NPP ABI host code and GPU-runtime code are split into separate translation units
 because CUDA/NPP and HIP headers define conflicting vector types.
 
 Current status: the shim/probe compile against installed CUDA 12 NPP headers and
-FFmpeg `scale_npp` loads the shim. P2P3/P3P2 joint chains pass; resize golden is
-still missing. See [local integration evidence](../../docs/evidence/NPP_StageA_本地集成_2026-11-13/README.md).
+FFmpeg `scale_npp` loads the shim. The AMD candidate matches the NVIDIA NPP
+11.5.1.107 golden byte-for-byte for all 32 entries; P2P3/P3P2 joint chains pass.
+See [AMD vs golden evidence](../../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md).
 
 ## 1. NVIDIA golden host
 
@@ -143,14 +144,12 @@ for a in nn linear cubic; do
 done
 ```
 
-## Stage A acceptance
+## Stage A acceptance status
 
-Do not mark Stage A complete until:
-
-1. NVIDIA 11.5.1.107 golden has been generated with a recorded environment;
-2. comparator passes with zero differing bytes;
-3. FFmpeg `scale_npp` is rebuilt against the shim and passes `nn`, `linear`,
-   `cubic` and the default cubic path;
-4. decode → NPP output is verified on VAAPI and Vulkan (P2P3/P3P2 already pass;
-   resize remains pending);
-5. the FFmpeg nonfree distribution path has a legal decision.
+1. ✅ NVIDIA 11.5.1.107 golden generated with recorded environment;
+2. ✅ comparator passes with zero differing bytes (32/32, 2,490,624 bytes);
+3. ✅ FFmpeg `scale_npp` built against the shim; `nn`, `linear`, `cubic` and
+   default cubic execute, default equals explicit cubic;
+4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI and Vulkan;
+5. ⏳ FFmpeg nonfree distribution path needs a legal decision;
+6. ⏳ final rebuild against authorized NPP 11.5 headers.
