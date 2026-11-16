@@ -73,4 +73,5 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 - FFmpeg 宿主矩阵 2026-11-13 修复后为 32/32 PASS：两后端 `nvdec-unsafe` 均为 D2D=0 且像素一致。零拷贝需要 `-extra_hw_frames`，shim 接受最多 64 个 decode surface。详见[宿主基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
 - Vulkan 的 `h264_nvdec` 会从 `CUVIDH264PICPARAMS` 合成最小 SPS/PPS；多 slice、VUI/crop、非默认缩放矩阵和 POC type 1 尚未覆盖。多流、seek/flush、动态分辨率仍未验收；两个后端同级。
 - 异步跨栈 fence 未实现；当前是主机同步基线。
+- 含 host 内存的 `cuMemcpy2DAsync` 走同步 `hipMemcpyParam2D`：CUDA 对 pageable 内存的“异步”拷贝在返回前已完成 staging，调用方可以立即复用源缓冲；直接转 `hipMemcpyParam2DAsync` 会让 FFmpeg 在上传后回收源帧时产生跨帧损坏。设备到设备拷贝仍保持异步。回归测试为 `tests/npp/verify_hwupload_roundtrip.sh`。
 - 本目录的测试是可行性验证，不是生产验收。

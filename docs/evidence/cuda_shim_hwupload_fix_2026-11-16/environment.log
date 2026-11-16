@@ -1,0 +1,7 @@
+date=2026-11-16T11:35:18+08:00
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+built with gcc 13 (Ubuntu 13.3.0-6ubuntu2~24.04.1)
+configuration: --enable-vulkan --enable-libshaderc --enable-vaapi --enable-libdav1d --enable-libvpx --enable-hwaccel='h264_vaapi,hevc_vaapi,vp9_vaapi,av1_vaapi' --enable-hwaccel='h264_vulkan,hevc_vulkan,av1_vulkan' --enable-cuda --enable-cuvid --enable-nvdec --enable-ffnvcodec --enable-x86asm --disable-static --enable-shared --disable-doc --enable-nonfree --enable-libnpp --disable-filter=scale2ref_npp --disable-filter=transpose_npp --disable-filter=sharpen_npp --extra-cflags=-I/usr/include --extra-ldflags='-L/home/mark/cuda-video-compat/npp_shim -Wl,-rpath,/home/mark/cuda-video-compat/npp_shim' --prefix=/tmp/ffmpeg-npp-install
+--- libcuda ---
+	libamdhip64.so.7 => /opt/rocm-7.2.4/lib/libamdhip64.so.7 (0x0000744c6f200000)
+CUDA_SHIM_DIR=/home/mark/cuda-video-compat/cuda_shim

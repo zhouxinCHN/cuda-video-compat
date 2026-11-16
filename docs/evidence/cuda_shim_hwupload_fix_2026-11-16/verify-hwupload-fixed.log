@@ -1,0 +1,7 @@
+PASS: yuv420p run 1 matches software reference (576000 bytes)
+PASS: yuv420p run 2 matches software reference (576000 bytes)
+PASS: yuv420p run 3 matches software reference (576000 bytes)
+PASS: nv12 run 1 matches software reference (576000 bytes)
+PASS: nv12 run 2 matches software reference (576000 bytes)
+PASS: nv12 run 3 matches software reference (576000 bytes)
+RESULT: PASS (6 upload/download round trips byte-identical)

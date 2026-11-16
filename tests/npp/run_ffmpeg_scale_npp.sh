@@ -7,12 +7,18 @@
 # to be byte-identical.
 #
 # The input is a generated testsrc fixture, not a decoded stream, so the
-# comparison isolates NPP numerics from decoder differences. The fixture is fed
-# through lavfi directly: a rawvideo input plus hwupload_cuda still shows a
-# cross-frame corruption on this host (tracked separately), while the lavfi
-# path is deterministic. A software-only pass renders the same frames to
-# source-reference.yuv; its hash is recorded and the comparator rejects runs
-# that started from different frames.
+# comparison isolates NPP numerics from decoder differences. A software-only
+# pass renders the frames to source-reference.yuv; its hash is recorded and the
+# comparator rejects runs that started from different frames. INPUT_MODE selects
+# how the filter chain receives them:
+#   lavfi (default): regenerate the frames inline with testsrc
+#   rawvideo:        read source-reference.yuv through the rawvideo demuxer
+# Both modes start from the same YUV420P frames, but FFmpeg's RGB->NV12 and
+# YUV420P->NV12 conversions differ by a few chroma values, so nv12 cases are
+# only comparable between runs that use the same INPUT_MODE. The archived
+# NVIDIA golden uses lavfi; generate a rawvideo golden before comparing that
+# mode. The rawvideo upload path is separately regression-tested by
+# verify_hwupload_roundtrip.sh.
 #
 # Matrix: 5 destination geometries x 4 interpolation modes x 2 surface formats.
 #   - nv12    path: P2P3 -> resize -> P3P2 through FFmpeg's scale_npp
@@ -31,6 +37,7 @@
 #   NPP_RUNTIME       shim | cuda | auto (default auto: detected from ldd)
 #   SHIM_DIR          expected shim directory for NPP_RUNTIME=shim
 #   OUT_DIR           output directory; must not contain a previous manifest
+#   INPUT_MODE        lavfi | rawvideo (default lavfi)
 #   SRC_WIDTH/SRC_HEIGHT/SRC_FRAMES  fixture geometry (default 320/240/5)
 #   REPEAT            runs per case; all runs must hash identically (default 2)
 #   TIMEOUT_SECONDS   per-run timeout (default 60)
@@ -49,6 +56,7 @@ FFMPEG=${FFMPEG:-${FFMPEG_BUILD_DIR:+$FFMPEG_BUILD_DIR/ffmpeg}}
 FFMPEG=${FFMPEG:-ffmpeg}
 NPP_RUNTIME=${NPP_RUNTIME:-auto}
 OUT_DIR=${OUT_DIR:-}
+INPUT_MODE=${INPUT_MODE:-lavfi}
 SRC_WIDTH=${SRC_WIDTH:-320}
 SRC_HEIGHT=${SRC_HEIGHT:-240}
 SRC_FRAMES=${SRC_FRAMES:-5}
@@ -150,6 +158,19 @@ ACTUAL_SRC_BYTES=$(stat -c %s "$SOURCE")
     die "source reference is $ACTUAL_SRC_BYTES bytes, expected $EXPECTED_SRC_BYTES"
 sha256sum "$SOURCE" | awk '{print $1}' >"$OUT_DIR/source.sha256"
 echo "source_sha256=$(cat "$OUT_DIR/source.sha256")" >>"$OUT_DIR/environment.log"
+echo "input_mode=$INPUT_MODE" >>"$OUT_DIR/environment.log"
+
+case "$INPUT_MODE" in
+    rawvideo)
+        INPUT_ARGS=(-f rawvideo -pix_fmt yuv420p
+                    -s "${SRC_WIDTH}x${SRC_HEIGHT}" -r "$RATE" -i "$SOURCE")
+        ;;
+    lavfi)
+        INPUT_ARGS=(-f lavfi -i
+                    "testsrc=size=${SRC_WIDTH}x${SRC_HEIGHT}:rate=$RATE:duration=1")
+        ;;
+    *) die "INPUT_MODE must be rawvideo or lavfi" ;;
+esac
 
 # --- matrix ----------------------------------------------------------------
 GEOMETRIES="160x120 214x118 640x480 320x240 100x100"
@@ -180,7 +201,7 @@ for geom in $GEOMETRIES; do
             vf="format=${fmt},hwupload_cuda,scale_npp=w=${dw}:h=${dh}${algo_opt}:format=${fmt},hwdownload,format=${fmt}"
             args=(-hide_banner -nostdin -v error -threads 1
                   -init_hw_device cuda=cu:0 -filter_hw_device cu
-                  -f lavfi -i "testsrc=size=${SRC_WIDTH}x${SRC_HEIGHT}:rate=$RATE:duration=1"
+                  "${INPUT_ARGS[@]}"
                   -vf "$vf" -frames:v "$SRC_FRAMES"
                   -f rawvideo -pix_fmt "$fmt" -y "$out")
 

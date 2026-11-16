@@ -360,6 +360,17 @@ CUresult cuMemcpy2DAsync_v2(const CUDA_MEMCPY2D *pcopy, CUstream hStream) {
     hip_Memcpy2D h;
     hipError_t e = cuda_memcpy2d_to_hip(pcopy, h);
     if (e != hipSuccess) return hip_err_to_cuda(e);
+
+    // CUDA's "async" copy involving pageable host memory is not asynchronous:
+    // the driver stages the buffer before returning, so the caller may reuse it
+    // immediately. hipMemcpyParam2DAsync can return before the staging copy has
+    // read the host buffer, which corrupts uploads when FFmpeg recycles the
+    // source frame (e.g. rawvideo input + hwupload_cuda). Host-involved copies
+    // therefore use the synchronous form; device-to-device copies stay async.
+    if (pcopy->srcMemoryType == CU_MEMORYTYPE_HOST ||
+        pcopy->dstMemoryType == CU_MEMORYTYPE_HOST) {
+        return hip_err_to_cuda(hipMemcpyParam2D(&h));
+    }
     return hip_err_to_cuda(hipMemcpyParam2DAsync(&h, reinterpret_cast<hipStream_t>(hStream)));
 }
 

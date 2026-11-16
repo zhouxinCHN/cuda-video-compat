@@ -133,10 +133,12 @@ ffmpeg -init_hw_device cuda=cu:0 -filter_hw_device cu \
 ```
 
 Both are expected to be byte-identical to the corresponding software conversion.
-A rawvideo input plus `hwupload_cuda` on this host is still nondeterministic
-(cross-frame corruption independent of `-threads 1`, `-filter_threads 1` or
-`-thread_type none`); use the direct lavfi source. This is tracked as a
-cuda_shim upload/copy synchronization defect, separate from NPP.
+Rawvideo input plus `hwupload_cuda` used to corrupt later frames because the
+shim forwarded a host-involved `cuMemcpy2DAsync` to `hipMemcpyParam2DAsync`,
+which could still read the source buffer after FFmpeg recycled it. The shim now
+performs host-involved 2D copies synchronously, matching CUDA's pageable-memory
+semantics. `verify_hwupload_roundtrip.sh` is the regression test for both
+`yuv420p` and `nv12`.
 
 Resize smoke (execution only until golden exists):
 
@@ -217,9 +219,20 @@ golden host publishes only `manifest.tsv` and hashes (raw outputs are not
 archived in git), add `--hashes-only` to compare the recorded per-case SHA256
 values instead of re-reading raw files.
 
-The script uses lavfi input on purpose: rawvideo input plus `hwupload_cuda` is
-nondeterministic on the AMD shim (see the note in section 4), and that defect
-must be fixed before rawvideo can be used in this matrix.
+`INPUT_MODE=lavfi` (default) feeds the frames inline; `INPUT_MODE=rawvideo`
+reads `source-reference.yuv` through the rawvideo demuxer. Both start from the
+same YUV420P frames, but FFmpeg's RGB->NV12 and YUV420P->NV12 conversions differ
+by a few chroma values, so nv12 cases are only comparable between runs that use
+the same mode. The archived NVIDIA golden uses lavfi; generate a rawvideo golden
+on the reference host before comparing that mode.
+
+Upload/download alone is covered by `verify_hwupload_roundtrip.sh`, which needs
+no golden and requires the CUDA round trip to reproduce a software conversion
+byte-for-byte for `yuv420p` and `nv12`:
+
+```bash
+FFMPEG_BUILD_DIR=/path/to/ffmpeg tests/npp/verify_hwupload_roundtrip.sh
+```
 
 ## Stage A acceptance status
 
@@ -237,3 +250,6 @@ must be fixed before rawvideo can be used in this matrix.
    26,307,120 bytes); NVIDIA golden generated with real NPP 11.5.1.107, and all
    40 case SHA256 values match. See
    [NVIDIA evidence](../../docs/evidence/NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/README.md).
+9. ✅ rawvideo + `hwupload_cuda` cross-frame corruption fixed in `libcuda.so.1`;
+   `verify_hwupload_roundtrip.sh` passes 6/6 for `yuv420p` and `nv12`. See
+   [hwupload fix evidence](../../docs/evidence/cuda_shim_hwupload_fix_2026-11-16/README.md).

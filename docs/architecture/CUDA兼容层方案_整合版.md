@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.10
+> 版本：v4.11
 > 文档日期：2026-11-16
 > 技术事实截止：2026-11-16
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -776,7 +776,8 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 - **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，该构建不可再分发。交付边界已定：我方只交付芯片和驱动，不捆绑该 FFmpeg、NPP 头文件或其他 nonfree 产物；客户自行构建并承担相应许可合规。
 - 最终构建头文件固定为 CUDA 12.0.1.104，不再要求 NPP 11.5 头文件重建；运行时 ABI/SONAME 与数值 golden 保持 NPP 11.5.1.107。
 - `libnppc` 已实现 CUDA/NPP 12.0.1.104 头文件中的全部核心 API：版本、设备 SM/线程/shared memory/名称、`nppGetStream`/`nppSetStream`、`NppStreamContext` 及 stream 设备查询；设备字段来自 `hipGetDeviceProperties`，compute capability 与 `cuda_shim` 的 `cuDeviceComputeCapability` 一致。`nppSetStream` 只记录句柄并在切换时同步设备，Stage A kernel 仍在默认 stream 上执行，因此是排序安全而非并发。
-- **FFmpeg 端到端矩阵已闭环**：40 个 case（5 尺寸 × nn/linear/cubic/default × nv12/yuv420p），NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 各重复 2 次，两侧 40/40 SHA256 一致，合计 26,307,120 bytes。输入采用 lavfi，因为 rawvideo + `hwupload_cuda` 在本机存在独立的跨帧损坏缺陷。
+- **FFmpeg 端到端矩阵已闭环**：40 个 case（5 尺寸 × nn/linear/cubic/default × nv12/yuv420p），NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 各重复 2 次，两侧 40/40 SHA256 一致，合计 26,307,120 bytes。矩阵使用 lavfi 输入；rawvideo 输入另由上传/下载回归测试覆盖。
+- **rawvideo + `hwupload_cuda` 缺陷已修复**：根因是 shim 把含 host 内存的 `cuMemcpy2DAsync` 直接转成 `hipMemcpyParam2DAsync`，FFmpeg 回收源帧后 HIP 拷贝仍在读取 host 缓冲，导致第 1 帧后出现确定性跨帧损坏。现在 host 参与的 2D 拷贝走同步 `hipMemcpyParam2D`，与 CUDA 对 pageable 内存“返回即可复用”的语义一致；`tests/npp/verify_hwupload_roundtrip.sh` 验证 yuv420p/nv12 各 3 次均与软件转换逐字节一致。
 - **版本串修正**：真实 NPP 11.5.1.107 的 `nppGetLibVersion()` 返回 `{11,5,1}`（`107` 是包版本），shim 已从 `{11,5,107}` 修正为 `{11,5,1}`。
 - 3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；ROI、step、padding、stream、错误语义需补齐。
 - resize 插值范围最终为全部 NPP interpolation flag；实施顺序是 FFmpeg 核心 cubic/NN/linear → FFmpeg 其余选项 → NPP 全部 flags。未实现模式显式失败。
@@ -1241,6 +1242,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.11（2026-11-16）**：修复 rawvideo + `hwupload_cuda` 跨帧损坏（host 参与的 `cuMemcpy2DAsync` 改为同步），新增 `verify_hwupload_roundtrip.sh` 回归测试；`scale_npp` 矩阵保留 lavfi 默认口径，rawvideo 模式需同模式 golden。
 - **v4.10（2026-11-16）**：FFmpeg `scale_npp` 端到端 NVIDIA golden 闭环：真实 NPP 11.5.1.107 与 AMD shim 的 40/40 case、26,307,120 bytes SHA256 一致；`nppGetLibVersion` 修正为真实库返回值 `{11,5,1}`。
 - **v4.9（2026-11-16）**：`libnppc` 核心 API 完整实现并通过跨主机探针；新增 FFmpeg `scale_npp` 端到端矩阵（40 case）和比较器，AMD 侧 40/40 可重复、26,307,120 bytes；记录 rawvideo + `hwupload_cuda` 未闭环缺陷。
 - **v4.8（2026-11-13）**：确定产品交付边界为芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg/NPP 头文件，FFmpeg 发布项关闭。
