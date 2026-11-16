@@ -61,7 +61,7 @@ if [ -n "$FFMPEG_BUILD_DIR" ]; then
     [ -d "$FFMPEG_BUILD_DIR" ] || die "FFMPEG_BUILD_DIR not found: $FFMPEG_BUILD_DIR"
     BUILD_LIBS=""
     for d in libavfilter libavutil libavcodec libavformat libswscale \
-             libswresample libavdevice; do
+             libswresample libavdevice libpostproc; do
         [ -d "$FFMPEG_BUILD_DIR/$d" ] && BUILD_LIBS="$BUILD_LIBS:$FFMPEG_BUILD_DIR/$d"
     done
     LD_LIBRARY_PATH="${BUILD_LIBS#:}:$CUDA_SHIM_DIR:$ROCM_DIR/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

@@ -1,0 +1,13 @@
+PASS slices-cuvid-vaapi frames=12
+PASS slices-cuvid-vk frames=12
+PASS slices-nvdec-vaapi frames=12
+PASS slices-nvdec-vk frames=12
+PASS crop-cuvid-vaapi frames=6
+PASS crop-cuvid-vk frames=6
+PASS crop-nvdec-vaapi frames=6
+PASS crop-nvdec-vk frames=6
+PASS seek-cuvid-vaapi frames=5
+PASS seek-cuvid-vk frames=5
+PASS seek-nvdec-vaapi frames=5
+PASS seek-nvdec-vk frames=5
+RESULT: 12 passed, 0 failed

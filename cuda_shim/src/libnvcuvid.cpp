@@ -140,6 +140,20 @@ CUresult CUDAAPI cuvidDecodePicture(CUvideodecoder handle, CUVIDPICPARAMS *pictu
     auto state = get_decoder(handle);
     if (!state || !picture) return CUDA_ERROR_INVALID_VALUE;
     std::lock_guard<std::mutex> guard(state->mutex);
+    if (std::getenv("CUVID_SHIM_TRACE_PARAMS")) {
+        const auto &h = picture->CodecSpecific.h264;
+        std::fprintf(stderr, "PARAM idx=%d fn=%d poc=%d/%d ref=%d intra=%d dpb:",
+                     picture->CurrPicIdx, h.frame_num, h.CurrFieldOrderCnt[0],
+                     h.CurrFieldOrderCnt[1], (int)h.ref_pic_flag,
+                     (int)picture->intra_pic_flag);
+        for (const auto &e : h.dpb) {
+            if (e.PicIdx >= 0)
+                std::fprintf(stderr, " [%d:fn%d:lt%d:ne%d]",
+                             e.PicIdx, e.FrameIdx, (int)e.is_long_term,
+                             (int)e.not_existing);
+        }
+        std::fprintf(stderr, "\n");
+    }
     if (picture->CurrPicIdx < 0 ||
         static_cast<std::size_t>(picture->CurrPicIdx) >= state->statuses.size()) {
         return CUDA_ERROR_INVALID_VALUE;
@@ -190,6 +204,13 @@ CUresult CUDAAPI cuvidMapVideoFrame64(CUvideodecoder handle, int picture_index,
     CUresult result = state->backend->map_frame(picture_index, &mapping);
     if (result != CUDA_SUCCESS) return result;
     if (!mapping.has_contiguous_nv12_layout()) return CUDA_ERROR_NOT_SUPPORTED;
+    // CUVID clients compute the NV12 chroma offset as pitch * target height.
+    // The backend surface is coded-height, which can be larger (1088 vs 1080);
+    // present a target-height view so cropping does not shift chroma.
+    if (state->info.ulTargetHeight > 0) {
+        result = mapping.repack_nv12_height(static_cast<int>(state->info.ulTargetHeight));
+        if (result != CUDA_SUCCESS) return result;
+    }
 
     const unsigned long long pointer = mapping.device_pointer();
     const unsigned int output_pitch = mapping.pitch();

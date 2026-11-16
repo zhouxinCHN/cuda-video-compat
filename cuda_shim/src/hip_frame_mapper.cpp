@@ -56,24 +56,69 @@ HipFrameMapping &HipFrameMapping::operator=(HipFrameMapping &&other) noexcept {
     uv_offset_ = other.uv_offset_;
     pitch_ = other.pitch_;
     contiguous_nv12_ = other.contiguous_nv12_;
+    owned_pointer_ = other.owned_pointer_;
     other.device_pointer_ = 0;
     other.uv_offset_ = 0;
     other.pitch_ = 0;
     other.contiguous_nv12_ = false;
+    other.owned_pointer_ = nullptr;
     other.objects_.clear();
     return *this;
 }
 
 void HipFrameMapping::reset() {
+    // A client copies from the mapped picture asynchronously and then unmaps.
+    // The surface may be decoded into again immediately; make sure any copy
+    // still reading it has completed before the mapping is released. The P0
+    // baseline is host-synchronized, so this does not change ordering rules.
+    if (contiguous_nv12_) (void)hipDeviceSynchronize();
     for (auto &object : objects_) {
         if (object.memory) (void)hipDestroyExternalMemory(object.memory);
         if (object.fd >= 0) close(object.fd);
     }
     objects_.clear();
+    if (owned_pointer_) {
+        (void)hipFree(owned_pointer_);
+        owned_pointer_ = nullptr;
+    }
     device_pointer_ = 0;
     uv_offset_ = 0;
     pitch_ = 0;
     contiguous_nv12_ = false;
+}
+
+CUresult HipFrameMapping::repack_nv12_height(int target_height) {
+    if (!contiguous_nv12_ || pitch_ == 0 || target_height <= 0 ||
+        (target_height & 1)) {
+        return CUDA_ERROR_INVALID_VALUE;
+    }
+    const std::size_t target = static_cast<std::size_t>(target_height);
+    if (uv_offset_ % pitch_ != 0) return CUDA_ERROR_INVALID_VALUE;
+    const std::size_t coded = uv_offset_ / pitch_;
+    if (target == coded) return CUDA_SUCCESS;
+    if (target > coded || target / 2 == 0) return CUDA_ERROR_INVALID_VALUE;
+
+    const std::size_t bytes = static_cast<std::size_t>(pitch_) * (target + target / 2);
+    void *buffer = nullptr;
+    if (hipMalloc(&buffer, bytes) != hipSuccess) return static_cast<CUresult>(2);
+
+    auto *src = reinterpret_cast<std::uint8_t *>(device_pointer_);
+    auto *dst = static_cast<std::uint8_t *>(buffer);
+    if (hipMemcpy2D(dst, pitch_, src, pitch_, pitch_, target,
+                    hipMemcpyDeviceToDevice) != hipSuccess ||
+        hipMemcpy2D(dst + static_cast<std::size_t>(pitch_) * target, pitch_,
+                    src + uv_offset_, pitch_, pitch_, target / 2,
+                    hipMemcpyDeviceToDevice) != hipSuccess) {
+        (void)hipFree(buffer);
+        return CUDA_ERROR_UNKNOWN;
+    }
+
+    if (owned_pointer_) (void)hipFree(owned_pointer_);
+    owned_pointer_ = buffer;
+    device_pointer_ = static_cast<CUdeviceptr>(
+        reinterpret_cast<uintptr_t>(static_cast<void *>(dst)));
+    uv_offset_ = static_cast<std::size_t>(pitch_) * target;
+    return CUDA_SUCCESS;
 }
 
 CUdeviceptr HipFrameMapping::device_pointer() const {

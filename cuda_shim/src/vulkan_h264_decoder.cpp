@@ -490,27 +490,16 @@ bool VulkanH264Decoder::fetch_sequence_params(std::vector<uint8_t> *sps,
 }
 
 bool VulkanH264Decoder::prepare_direct_sequence(const CUVIDPICPARAMS &picture) {
-    const uint8_t *src = picture.pBitstreamData;
-    const uint32_t len = picture.nBitstreamDataLen;
-    const bool nvdec_annex_b =
-        src && ((len >= 4 && src[0] == 0 && src[1] == 0 && src[2] == 0 && src[3] == 1) ||
-                (len >= 3 && src[0] == 0 && src[1] == 0 && src[2] == 1));
-
-    // h264_nvdec 的 slice 自带 start code，且永远不填进程级 cache；
-    // 直接使用本 decoder 的合成参数集，避免误用其它 parser 留下的旧 cache。
+    // Prefer the parameter sets the CUVID parser saw. h264_nvdec never fills
+    // this cache, so it falls through to the synthesized sets below. The
+    // h264_cuvid path also carries Annex-B slices now (the parser assembles
+    // multi-slice access units), so "has a start code" no longer distinguishes
+    // the two hosts.
     std::vector<uint8_t> cached_sps;
     std::vector<uint8_t> cached_pps;
-    if (!nvdec_annex_b && VkSequenceCache::fetch(&cached_sps, &cached_pps)) return true;
+    if (VkSequenceCache::fetch(&cached_sps, &cached_pps)) return true;
     if (!direct_sps_.empty() && !direct_pps_.empty()) return true;
 
-    if (picture.nNumSlices > 1) {
-        // The current Vulkan command path encodes one slice offset. Do not
-        // accept a multi-slice picture and silently decode only its first slice.
-        if (std::getenv("CUVID_SHIM_DEBUG_VK"))
-            std::fprintf(stderr, "[vk] direct params: multi-slice unsupported (%u)\n",
-                         picture.nNumSlices);
-        return false;
-    }
     if (!synthesize_h264_parameter_sets(picture, &direct_sps_, &direct_pps_)) {
         if (std::getenv("CUVID_SHIM_DEBUG_VK"))
             std::fprintf(stderr, "[vk] cannot synthesize SPS/PPS from CUVIDPICPARAMS\n");
@@ -1156,10 +1145,6 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         }
     }
     if (!slice_nal) { dbg("no slice NAL found"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported; }
-    if (slice_nal_count != 1) {
-        dbg("multi-slice picture unsupported by current Vulkan command path");
-        ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
-    }
 
     SliceInfo si;
     if (!parse_slice_header(slice_nal, sps, pps, &si)) {
@@ -1272,16 +1257,43 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     setup_slot_info.slotIndex = setup_slot;
     setup_slot_info.pPictureResource = &setup_res;
 
-    // --- 6. write the Annex-B slice into the bitstream buffer ---
+    // --- 6. write the Annex-B access unit into the bitstream buffer ---
+    // slice_buf holds every slice NAL of the picture with start codes (the
+    // CUVID parser assembles multi-slice access units; nvdec hands one in
+    // already). Upload it as a whole and describe each slice by its offset.
+    if (slice_buf.size() > bitstream_buf_size_) {
+        dbg("access unit does not fit in the bitstream buffer");
+        ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps);
+        return kNotSupported;
+    }
     {
         void *p = nullptr;
         vkMapMemory(device_, bitstream_mem_, 0, bitstream_buf_size_, 0, &p);
         std::memset(p, 0, bitstream_buf_size_);
-        uint8_t *dst = static_cast<uint8_t *>(p);
-        const uint8_t startcode[4] = { 0x00, 0x00, 0x00, 0x01 };
-        std::memcpy(dst, startcode, 4);
-        std::memcpy(dst + 4, slice_nal->raw_data, slice_nal->raw_size);
+        std::memcpy(p, slice_buf.data(), slice_buf.size());
         vkUnmapMemory(device_, bitstream_mem_);
+    }
+
+    std::vector<uint32_t> slice_offsets;
+    if (picture.nNumSlices > 1 && picture.pSliceDataOffsets) {
+        if (!has_start_code) {
+            // Offsets would be relative to the input buffer, not to the start
+            // code we just prepended.
+            dbg("multi-slice input without start codes");
+            ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps);
+            return kNotSupported;
+        }
+        slice_offsets.assign(picture.pSliceDataOffsets,
+                             picture.pSliceDataOffsets + picture.nNumSlices);
+        for (uint32_t offset : slice_offsets) {
+            if (offset >= slice_buf.size()) {
+                dbg("slice offset outside the access unit");
+                ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps);
+                return kNotSupported;
+            }
+        }
+    } else {
+        slice_offsets.push_back(0);
     }
 
     // --- 7. StdVideoDecodeH264PictureInfo ---
@@ -1296,7 +1308,6 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     std_pic.PicOrderCnt[0] = field_poc[0];
     std_pic.PicOrderCnt[1] = field_poc[1];
 
-    uint32_t slice_offsets[1] = { 0 };
 
     // --- 8. record decode command buffer ---
     ImageRes &out = outputs_[picture.CurrPicIdx];
@@ -1386,15 +1397,15 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     VkVideoDecodeH264PictureInfoKHR h264_pic_info = {};
     h264_pic_info.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PICTURE_INFO_KHR;
     h264_pic_info.pStdPictureInfo = &std_pic;
-    h264_pic_info.sliceCount = 1;
-    h264_pic_info.pSliceOffsets = slice_offsets;
+    h264_pic_info.sliceCount = static_cast<uint32_t>(slice_offsets.size());
+    h264_pic_info.pSliceOffsets = slice_offsets.data();
 
     VkVideoDecodeInfoKHR decode_info = {};
     decode_info.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_INFO_KHR;
     decode_info.pNext = &h264_pic_info;
     decode_info.srcBuffer = bitstream_buf_;
     decode_info.srcBufferOffset = 0;
-    VkDeviceSize src_range = 4 + slice_nal->raw_size;
+    VkDeviceSize src_range = slice_buf.size();
     src_range = (src_range + min_bitstream_align_ - 1) / min_bitstream_align_ * min_bitstream_align_;
     decode_info.srcBufferRange = src_range;
     decode_info.dstPictureResource.sType = VK_STRUCTURE_TYPE_VIDEO_PICTURE_RESOURCE_INFO_KHR;

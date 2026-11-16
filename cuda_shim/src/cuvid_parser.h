@@ -56,6 +56,23 @@ private:
     // Byte buffer accumulated across packets.
     std::vector<uint8_t> buffer_;
 
+    // Slices of the picture currently being assembled. A picture starts at a
+    // slice with first_mb_in_slice == 0 and is submitted to the backend as one
+    // CUVIDPICPARAMS once the last slice of the access unit has been seen.
+    // Each slice is stored with a 4-byte Annex-B start code; offsets index the
+    // first byte of each slice NAL inside slice_buffer_.
+    struct PendingSlicePicture {
+        int64_t timestamp = 0;
+        int frame_num = 0;
+        int poc = 0;
+        bool is_reference = true;
+        bool is_idr = false;
+    };
+    std::vector<uint8_t> slice_buffer_;
+    std::vector<uint32_t> slice_offsets_;
+    PendingSlicePicture pending_picture_;
+    bool pending_picture_active_ = false;
+
     // DPB (Decoded Picture Buffer) state for P/B frame support.
     struct DpbEntry {
         int picture_index = -1;
@@ -81,7 +98,8 @@ private:
     CUresult send_sequence();
     CUresult parse_slice_header(const uint8_t *nal_data, std::size_t nal_size,
                                 bool is_idr, int *frame_num, int *poc,
-                                bool *is_reference);
+                                bool *is_reference, int *first_mb);
+    CUresult flush_picture();
     CUresult send_picture(const uint8_t *nal_data, std::size_t nal_size,
                           int64_t timestamp, int frame_num, int poc,
                           bool is_reference, bool is_idr);

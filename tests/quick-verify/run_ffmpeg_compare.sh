@@ -127,6 +127,7 @@ for libdir in \
     "$FFMPEG_BUILD_DIR/libavcodec" \
     "$FFMPEG_BUILD_DIR/libswresample" \
     "$FFMPEG_BUILD_DIR/libswscale" \
+    "$FFMPEG_BUILD_DIR/libpostproc" \
     "$FFMPEG_BUILD_DIR/libavutil"; do
     [ -d "$libdir" ] || continue
     if [ -n "$ffmpeg_lib_path" ]; then

@@ -64,6 +64,8 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 | `RADV_PERFTEST=video_decode` | 验证机脚本显式设置；部分 Mesa 版本可能默认暴露视频队列族，尚未做同版本 A/B 对照 |
 | `CUVID_SHIM_DEBUG_VK=1` | 每帧打印解码参数（type/poc/参考槽/setup 槽/DPB 空闲表） |
 | `CUVID_SHIM_NOCOPY=1` | 只解码不导出，分离“解码参数问题”与“同步/导出问题” |
+| `CUVID_SHIM_TRACE_PARAMS=1` | 打印每次 `cuvidDecodePicture` 的 frame_num/POC/DPB，用于参考帧问题定位 |
+| `CUVID_SHIM_TRACE_SURF=1` | 打印解码目标面与 map/unmap 顺序 |
 | `CUVID_DUMP_NV12_DIR=<dir>` | 每帧 dump NV12，用于和软解参考逐帧逐平面比对 |
 
 ## 状态与边界
@@ -71,7 +73,9 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 - 解码正确性、B 帧根因与验证结果以 [Vulkan 后端实现 §8](../docs/architecture/Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv) 和 [P0 闭环验证结果](../docs/evidence/P0闭环验证结果_2026-11-12.md) 为准。
 - 四路验证码流中 `test_p_b_5` / `test_p_b_7` 含 B 帧，`test_p_main` / `test_p_66` 是无 B 帧对照。
 - FFmpeg 宿主矩阵 2026-11-13 修复后为 32/32 PASS：两后端 `nvdec-unsafe` 均为 D2D=0 且像素一致。零拷贝需要 `-extra_hw_frames`，shim 接受最多 64 个 decode surface。详见[宿主基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
-- Vulkan 的 `h264_nvdec` 会从 `CUVIDH264PICPARAMS` 合成最小 SPS/PPS；多 slice、VUI/crop、非默认缩放矩阵和 POC type 1 尚未覆盖。多流、seek/flush、动态分辨率仍未验收；两个后端同级。
+- Vulkan 的 `h264_nvdec` 会从 `CUVIDH264PICPARAMS` 合成最小 SPS/PPS。多 slice、1080p 裁剪和 MP4 seek 已在 cuvid/nvdec × 双后端共 12 个组合通过；多流、动态分辨率、长期参考和 POC type 1 尚未覆盖；两个后端同级。
+- parser 按 `first_mb_in_slice == 0` 组装多 slice picture 并提交 `nNumSlices`/`pSliceDataOffsets`；新 SPS 尺寸变化会重新触发 sequence callback 并清空 DPB。FFmpeg CLI 仍会因固定 `AVHWFramesContext` 拒绝中途改分辨率。
+- `cuvidMapVideoFrame64` 在目标高度小于 coded 高度（如 1080 vs 1088）时重排成 target-height NV12 视图；unmap 时同步设备，避免异步 D2D 拷贝与 VA 面复用竞争。
 - 异步跨栈 fence 未实现；当前是主机同步基线。
 - 含 host 内存的 `cuMemcpy2DAsync` 走同步 `hipMemcpyParam2D`：CUDA 对 pageable 内存的“异步”拷贝在返回前已完成 staging，调用方可以立即复用源缓冲；直接转 `hipMemcpyParam2DAsync` 会让 FFmpeg 在上传后回收源帧时产生跨帧损坏。设备到设备拷贝仍保持异步。回归测试为 `tests/npp/verify_hwupload_roundtrip.sh`。
 - 本目录的测试是可行性验证，不是生产验收。

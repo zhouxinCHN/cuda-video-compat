@@ -4,6 +4,7 @@
 #include "vaapi_h264_decoder.h"
 #include "vulkan_h264_decoder.h"
 
+#include <cstdio>
 #include <cstdlib>
 #include <cstring>
 
@@ -19,11 +20,21 @@ public:
         return impl_.initialize(info);
     }
     CUresult decode(const CUVIDPICPARAMS &picture) override {
+        if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
+            std::fprintf(stderr, "SHIM VA DECODE idx=%d\n", picture.CurrPicIdx);
+        }
         return impl_.decode(picture);
     }
     CUresult map_frame(int picture_index, HipFrameMapping *mapping) override {
         VASurfaceID surface = impl_.surface(static_cast<std::size_t>(picture_index));
         if (surface == VA_INVALID_SURFACE) return CUDA_ERROR_INVALID_VALUE;
+        // The NVENC/NVDEC host may map a picture while later decodes are still
+        // queued on the same VA context. Wait for this surface before handing
+        // out its dma-buf, otherwise a recycled surface can change under the
+        // consumer (seen as a single wrong frame after an nvdec seek).
+        if (vaSyncSurface(impl_.display(), surface) != VA_STATUS_SUCCESS) {
+            return CUDA_ERROR_UNKNOWN;
+        }
         return mapping->map(impl_.display(), surface, impl_.coded_width(), impl_.coded_height());
     }
     int coded_width() const override { return impl_.coded_width(); }

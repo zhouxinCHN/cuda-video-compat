@@ -33,7 +33,10 @@ CuvidParser::~CuvidParser() {
 
 CUresult CuvidParser::parse(const CUVIDSOURCEDATAPACKET &packet) {
     if (packet.payload_size == 0) {
-        // EOS：把重排序队列里剩下的画面按 POC 顺序全部吐出去
+        // EOS：先提交还没送出的最后一个 slice 组，再把重排序队列里剩下的
+        // 画面按 POC 顺序全部吐出去
+        CUresult result = flush_picture();
+        if (result != CUDA_SUCCESS) return result;
         pump_display_queue(0, true);
         return CUDA_SUCCESS;
     }
@@ -60,9 +63,42 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
             GetBitContext gb = nal.gb;
             ret = ff_h264_decode_seq_parameter_set(&gb, &avctx_, &ps_, 0);
             if (ret < 0) { ff_h2645_packet_uninit(&pkt); return kNotSupported; }
+            const SPS *new_sps = nullptr;
             for (int k = 0; k < MAX_SPS_COUNT; ++k) {
-                if (ps_.sps_list[k]) { sps_ = ps_.sps_list[k]; break; }
+                if (ps_.sps_list[k]) { new_sps = ps_.sps_list[k]; break; }
             }
+            // A new sequence with different dimensions/crop requires a fresh
+            // sequence callback so the host reinitializes its decoder and frame
+            // pool. Identical SPS repeats at every IDR must not reset the DPB.
+            const bool sequence_changed =
+                sps_ && new_sps &&
+                (new_sps->mb_width != sps_->mb_width ||
+                 new_sps->mb_height != sps_->mb_height ||
+                 new_sps->crop_left != sps_->crop_left ||
+                 new_sps->crop_right != sps_->crop_right ||
+                 new_sps->crop_top != sps_->crop_top ||
+                 new_sps->crop_bottom != sps_->crop_bottom ||
+                 new_sps->chroma_format_idc != sps_->chroma_format_idc ||
+                 new_sps->bit_depth_luma != sps_->bit_depth_luma ||
+                 new_sps->bit_depth_chroma != sps_->bit_depth_chroma);
+            if (sequence_changed) {
+                if (std::getenv("CUVID_SHIM_DEBUG_NAL")) {
+                    std::fprintf(stderr,
+                                 "SHIM SEQUENCE CHANGE %dx%d -> %dx%d\n",
+                                 sps_->mb_width * 16, sps_->mb_height * 16,
+                                 new_sps->mb_width * 16, new_sps->mb_height * 16);
+                }
+                flush_picture();
+                pump_display_queue(0, true);
+                dpb_.clear();
+                prev_frame_num_ = 0;
+                prev_poc_lsb_ = 0;
+                prev_poc_msb_ = 0;
+                next_picture_index_ = 0;
+                num_decode_surfaces_ = 0;
+                sequence_sent_ = false;
+            }
+            sps_ = new_sps;
             ps_ready_ = false;
             // Stash SPS NAL bytes for the Vulkan backend's cache.
             // 必须存**原始字节**（含防竞争字节 0x03）：nal.data 是去掉 EPB 的
@@ -112,9 +148,11 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
             // 解析 slice header 获取 frame_num 和 POC（用去掉防竞争字节的 RBSP）
             int frame_num = 0;
             int poc = 0;
+            int first_mb = 0;
             bool is_reference = true;
             const bool is_idr = nal.type == NAL_SLICE_IDR;
-            parse_slice_header(nal.data, nal.size, is_idr, &frame_num, &poc, &is_reference);
+            parse_slice_header(nal.data, nal.size, is_idr, &frame_num, &poc, &is_reference,
+                               &first_mb);
 
             // 但送给后端的码流必须是**原始字节**（含防竞争字节 0x03）：VA API 规范
             // 明确要求 slice data buffer 是 original bitstream，硬件自己解析
@@ -133,9 +171,31 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
                              payload_size > 2 ? payload[2] : 0, payload_size > 3 ? payload[3] : 0,
                              frame_num, poc, (int)is_reference, (long long)timestamp);
             }
-            CUresult result = send_picture(payload, payload_size, timestamp,
-                                           frame_num, poc, is_reference, is_idr);
-            if (result != CUDA_SUCCESS) { ff_h2645_packet_uninit(&pkt); return result; }
+            // 一个 picture 可以由多个 slice 组成：first_mb_in_slice == 0 开始
+            // 新 picture，其余 slice 追加到当前 picture。全部 slice 一起作为
+            // 一个 CUVIDPICPARAMS 提交，不能每个 slice 当一帧送。
+            if (first_mb == 0) {
+                CUresult result = flush_picture();
+                if (result != CUDA_SUCCESS) { ff_h2645_packet_uninit(&pkt); return result; }
+                pending_picture_.timestamp = timestamp;
+                pending_picture_.frame_num = frame_num;
+                pending_picture_.poc = poc;
+                pending_picture_.is_reference = is_reference;
+                pending_picture_.is_idr = is_idr;
+                pending_picture_active_ = true;
+            } else if (!pending_picture_active_) {
+                if (std::getenv("CUVID_SHIM_DEBUG_NAL")) {
+                    std::fprintf(stderr,
+                                 "SHIM NAL continuation slice without picture start (first_mb=%d)\n",
+                                 first_mb);
+                }
+                break;
+            }
+
+            static const uint8_t start_code[4] = {0, 0, 0, 1};
+            slice_offsets_.push_back(static_cast<uint32_t>(slice_buffer_.size()));
+            slice_buffer_.insert(slice_buffer_.end(), start_code, start_code + 4);
+            slice_buffer_.insert(slice_buffer_.end(), payload, payload + payload_size);
             break;
         }
         default:
@@ -144,7 +204,12 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
     }
 
     ff_h2645_packet_uninit(&pkt);
-    return CUDA_SUCCESS;
+
+    // A packet carries a complete access unit for both Annex-B files and the
+    // FFmpeg MP4 demuxer, so submit the assembled picture now. If a picture is
+    // ever split across packets, the next first_mb_in_slice == 0 (or EOS)
+    // still closes it correctly.
+    return flush_picture();
 }
 
 CUresult CuvidParser::send_sequence() {
@@ -194,7 +259,8 @@ CUresult CuvidParser::send_sequence() {
 
 CUresult CuvidParser::parse_slice_header(const uint8_t *nal_data, std::size_t nal_size,
                                          bool is_idr, int *frame_num, int *poc,
-                                         bool *is_reference) {
+                                         bool *is_reference, int *first_mb) {
+    *first_mb = 0;
     if (nal_size < 2) {
         *frame_num = 0;
         *poc = 0;
@@ -231,7 +297,7 @@ CUresult CuvidParser::parse_slice_header(const uint8_t *nal_data, std::size_t na
     }
 
     // first_mb_in_slice (ue)
-    get_ue_golomb(&gb);
+    *first_mb = get_ue_golomb(&gb);
     // slice_type (ue)
     get_ue_golomb(&gb);
     // pic_parameter_set_id (ue)
@@ -281,6 +347,24 @@ CUresult CuvidParser::parse_slice_header(const uint8_t *nal_data, std::size_t na
     return CUDA_SUCCESS;
 }
 
+CUresult CuvidParser::flush_picture() {
+    if (!pending_picture_active_ || slice_buffer_.empty()) {
+        slice_buffer_.clear();
+        slice_offsets_.clear();
+        pending_picture_active_ = false;
+        return CUDA_SUCCESS;
+    }
+
+    CUresult result = send_picture(slice_buffer_.data(), slice_buffer_.size(),
+                                   pending_picture_.timestamp,
+                                   pending_picture_.frame_num, pending_picture_.poc,
+                                   pending_picture_.is_reference, pending_picture_.is_idr);
+    slice_buffer_.clear();
+    slice_offsets_.clear();
+    pending_picture_active_ = false;
+    return result;
+}
+
 CUresult CuvidParser::send_picture(const uint8_t *nal_data, std::size_t nal_size,
                                    int64_t timestamp, int frame_num, int poc,
                                    bool is_reference, bool is_idr) {
@@ -321,9 +405,9 @@ CUresult CuvidParser::send_picture(const uint8_t *nal_data, std::size_t nal_size
     pic.intra_pic_flag = is_idr ? 1 : 0;
     pic.nBitstreamDataLen = static_cast<unsigned int>(nal_size);
     pic.pBitstreamData = const_cast<uint8_t *>(nal_data);
-    pic.nNumSlices = 1;
-    static const unsigned int zero_offset = 0;
-    pic.pSliceDataOffsets = &zero_offset;
+    pic.nNumSlices = static_cast<unsigned int>(slice_offsets_.size());
+    if (pic.nNumSlices == 0) return CUDA_ERROR_INVALID_VALUE;
+    pic.pSliceDataOffsets = slice_offsets_.data();
 
     if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
         std::fprintf(stderr, "SHIM DECODE idx=%u fn=%d poc=%d ref=%d idr=%d\n",
