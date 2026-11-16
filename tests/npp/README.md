@@ -152,5 +152,6 @@ done
 3. ✅ FFmpeg `scale_npp` built against the shim; `nn`, `linear`, `cubic` and
    default cubic execute, default equals explicit cubic;
 4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI and Vulkan;
-5. ⏳ FFmpeg nonfree distribution path needs a legal decision;
+5. ✅ FFmpeg nonfree build is customer-built; vendor delivery is chip plus
+   driver and does not bundle it;
 6. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild.

@@ -72,7 +72,8 @@ Stage A acceptance status:
    explicit cubic;
 4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI/Vulkan;
 5. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild;
-6. ⏳ legal/build decision for the FFmpeg nonfree linkage.
+6. ✅ delivery boundary: the customer builds the NPP-enabled FFmpeg; the
+   vendor ships chip plus driver and does not bundle this nonfree build.
 
 ## Known limitations
 

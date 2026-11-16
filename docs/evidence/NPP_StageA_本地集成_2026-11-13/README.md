@@ -31,7 +31,7 @@
 - `ldd` 实际解析到本仓库的 `npp_shim`
 - `ffmpeg -filters` 已列出 `scale_npp`
 
-**合规边界：FFmpeg configure 将 libnpp 标记为 nonfree，必须 `--enable-nonfree`；输出为非可再分发构建。** 这只用于本地技术验证，不能作为发布配置。
+**合规边界：FFmpeg configure 将 libnpp 标记为 nonfree，必须 `--enable-nonfree`；输出为非可再分发构建。** 这只用于本地技术验证，不能作为我方发布配置；按交付边界，最终由客户自行构建。
 
 ### 3. 颜色转换联合链路
 
@@ -63,7 +63,7 @@
 
 1. **没有 NVIDIA GPU，未生成 NPP golden**。因此 NN/linear/cubic 的坐标、cubic 系数、边界与舍入仍未证明与 NPP 逐字节一致。
 2. ~~最终必须用 11.5 头文件/环境复核~~：**已取消（2026-11-13 决策）**。最终构建头文件固定为 CUDA/NPP 12.0.1.104；11.5.1.107 仅作为运行时 ABI/SONAME 与数值 golden。
-3. **FFmpeg 的 libnpp 是 nonfree**：当前集成配置不可再分发；许可证/发布路线需重新决策。
+3. **FFmpeg 的 libnpp 是 nonfree**：当前集成配置不可再分发。**后续决策（2026-11-13）**：产品只交付芯片和驱动，不捆绑该 FFmpeg；客户自行构建并承担 NPP/FFmpeg 许可合规。
 4. `libnppc` 只实现版本探测；stream context 等 API 未实现。
 5. 阶段 A 尚未完成 FFmpeg 全部 resize 用例的 NVIDIA 对照。
 

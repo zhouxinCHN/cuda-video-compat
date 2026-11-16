@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.7
+> 版本：v4.8
 > 文档日期：2026-11-13
 > 技术事实截止：2026-11-12
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -37,7 +37,7 @@
 | DRM sync_file 跨栈异步同步 | 设计假设 | 基础原语可用，真实跨引擎 fence 传递/排序/异常未完成 |
 | CUVID shim 数据通路 | AMD-PoC | 双后端四路码流各 82/82 逐字节；`verify_kernel_read` errors=0；FFmpeg 宿主矩阵修复后 32/32 PASS，含双后端零 D2D 与严格 PTS |
 | NPP NVIDIA 参考基线 | NVIDIA 参考机已验证 | RTX 4060 / NPP 11.5.1.107 Stage A golden 32 条，重复运行稳定 |
-| NPP AMD Stage A | AMD-PoC | 32/32 条目、2,490,624 bytes 与 NVIDIA golden 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过；libnpp nonfree 发布方案未决 |
+| NPP AMD Stage A | AMD-PoC | 32/32 条目、2,490,624 bytes 与 NVIDIA golden 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过；nonfree FFmpeg 由客户自行构建 |
 | Vulkan Video 后端 | AMD-PoC | 解码→拷贝→导出→HIP 读取通过，已接入 CUVID；h264_nvdec 使用合成 SPS/PPS；与 VAAPI 同级候选 |
 | 目标平台 | 待验证 | AMD 结果不能替代实际交付平台验收 |
 
@@ -773,7 +773,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 - AMD NPP Stage A shim 已实现 NN/linear/cubic 三个 resize 模式及两种 4:2:0 平面转换；真实 CUDA/NPP 12 头文件下构建成功，独立 FFmpeg 已加载 `scale_npp`。
 - **Stage A 数值验收通过**：AMD candidate 与 NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致，覆盖 full/ROI、pitch、padding 和三种 resize 算法。
 - FFmpeg 联合链路：P2P3/P3P2 在 VAAPI/Vulkan 两个解码后端均与软件转换逐字节一致；NN/linear/cubic 通过 `scale_npp` 执行。
-- **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，当前集成本地构建不可再分发。发布/客户交付路径需要法务和产品重新决策。
+- **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，该构建不可再分发。交付边界已定：我方只交付芯片和驱动，不捆绑该 FFmpeg、NPP 头文件或其他 nonfree 产物；客户自行构建并承担相应许可合规。
 - 最终构建头文件固定为 CUDA 12.0.1.104，不再要求 NPP 11.5 头文件重建；运行时 ABI/SONAME 与数值 golden 保持 NPP 11.5.1.107。
 - `libnppc` 当前只提供 `nppGetLibVersion` 链接探测；完整 stream/version 接口待后续增量。
 - 3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；ROI、step、padding、stream、错误语义需补齐。
@@ -1059,7 +1059,7 @@ Mesa
 | **第 0 步：范围与底层能力确认** | 范围/验收口径；AMD 验证机 HIP/VAAPI 共存、DMA-BUF、LINEAR NV12、实验 C/E | 范围确认；底层能力门禁通过 | ✅ 已通过，不代表 P0 整体通过 |
 | **第 1A 步：真实解码→HIP 读** | 同进程 libva 解码→LINEAR surface→DMA-BUF→HIP 读取的程序与日志 | 多帧 NV12 各 plane 逐字节一致；无 fd/内存泄漏 | ✅ 已由实验 C 闭合 |
 | **第 1B 步：CUVID shim 与 FFmpeg 集成** | 真实 CUVID decoder/parser/map/unmap；`h264_cuvid`、`h264_nvdec` 双路径 | 两条路径多帧像素、帧数、显示顺序、pitch、flush、资源检查通过；`h264_nvdec` 证明 HIP 直接读取像素正确 | ⚠️ P0 四路双后端 32/32 通过；多 slice、真实业务配置和长稳待补 |
-| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 | ✅ Stage A 32/32 golden 一致；P2P3/P3P2 双后端联合链路通过；真实业务/长稳与 nonfree 发布路径仍待完成 |
+| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 | ✅ Stage A 32/32 golden 一致；P2P3/P3P2 双后端联合链路通过；nonfree FFmpeg 由客户自建，真实业务/长稳仍待完成 |
 | **P1：复杂场景与交付验证** | crop、seek/flush、动态分辨率、长期参考、用户应用、异常恢复、安全、部署、生产性能 | 按 [§1.4](#14-p0-技术范围与验收边界) 范围通过；P010、其他 codec/NPP/API 仅在新增需求评审后扩展 | ❌ 未开始 |
 
 补充要求：
@@ -1135,7 +1135,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
 |---|---|---|---|---|---|
 | R1 | FFmpeg 宿主结果扩展到真实业务 | 320×240 矩阵通过不等于生产线程/队列和长稳 | 32/32 P0 矩阵、双后端零 D2D、严格 PTS | 真实应用、多 slice、1080p/4K、多流和长稳 | 1B–P1 |
-| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 32/32 golden 通过；P2P3/P3P2 双后端通过 | nonfree 发布方案法务评审见[总体方案](CUDA兼容层总体方案.md)；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 第 2 步 |
+| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 32/32 golden 通过；P2P3/P3P2 双后端通过 | nonfree FFmpeg 由客户自建、产品不捆绑；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 第 2 步 |
 | R3 | 目标平台差异 | AMD 布局/驱动/性能不能直接外推 | 仅 AMD 验证机 | 目标平台能力检查；运行时能力探测；Gate 见[总体方案](CUDA兼容层总体方案.md) | 0/1B |
 | R4 | 长尾场景 | 多流/seek/flush/crop/动态分辨率/长期参考 | 未覆盖 | 场景矩阵；缺陷收敛 | P1 |
 
@@ -1176,7 +1176,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | G5 | 场/MBAFF 显式不支持 | 已显式返回不支持 | 无 | 符合 P0 边界 | 错误码/日志 |
 | G6 | 多流 parser/VkSequenceCache 键控 | 单序列/单槽 | 多流不可用 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
 | G7 | seek/flush/crop/动态分辨率 | 部分 flush；crop/动态分辨率未验收 | 长尾场景缺口 | P1 阻塞 | 场景矩阵 |
-| G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过 | nonfree 发布路径、nppc API、真实业务/长稳；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 核心数值通过 | 逐字节 + 联合链路 |
+| G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过 | nppc API、真实业务/长稳；最终构建头文件固定为 CUDA/NPP 12.0.1.104；nonfree FFmpeg 由客户自建 | 核心数值通过 | 逐字节 + 联合链路 |
 | G9 | FFmpeg 双路径验收 | 两后端 CUVID CPU/CUDA、NVDEC 安全/零拷贝、PTS 容器全部通过 | 真实业务线程/队列、多 slice、长稳未覆盖 | 生产交付前继续扩展 | 双路径像素/帧数/顺序/资源 |
 | G10 | 目标平台能力门禁 | 仅 AMD 验证机 | 目标平台未跑 | 结论不可外推 | 目标平台能力检查通过；Gate 定义见[总体方案](CUDA兼容层总体方案.md) |
 | G11 | 异步跨栈 fence | 未实现 | 只有主机同步 | 高吞吐受限 | sync_file/syncobj 端到端 |
@@ -1210,7 +1210,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 | FFmpeg 双路径 | `h264_cuvid`/`h264_nvdec` | `run_ffmpeg_compare.sh` | ✅ P0 四路双后端 32/32；PTS 8/8 | 1B |
 | 零拷贝计数 | `h264_nvdec` D2D=0 | `CUDA_SHIM_TRACE_COPY=1` | ✅ 双后端四路 D2D=0（需额外 surface） | 1B |
 | NPP 参考 | 3 函数 | `npp_p0_reference.cpp` | NVIDIA 11.5.1.107 已固化 | 第 2 步 |
-| NPP AMD | 3 函数 + nppc | Stage A + 独立 FFmpeg | ✅ 32/32 golden 逐字节；nonfree 发布未决；nppc 不完整 | 第 2 步 |
+| NPP AMD | 3 函数 + nppc | Stage A + 独立 FFmpeg | ✅ 32/32 golden 逐字节；nonfree FFmpeg 由客户自建；nppc 不完整 | 第 2 步 |
 | 联合链路 | 解码→NPP | 双后端 P2P3/P3P2 + FFmpeg scale_npp | ✅ 颜色转换逐字节；真实业务/长稳未覆盖 | 第 2 步 |
 | 复杂场景 | seek/crop/动态分辨率/多流 | 验证手册场景矩阵 | ❌ 未覆盖 | P1 |
 | 稳定性 | 1/8 路 30 分钟 | 验证手册 | ❌ 未覆盖 | G3 |
@@ -1239,6 +1239,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.8（2026-11-13）**：确定产品交付边界为芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg/NPP 头文件，FFmpeg 发布项关闭。
 - **v4.7（2026-11-13）**：确认最终 NPP 构建头文件固定为 CUDA/NPP 12.0.1.104，删除“用 11.5 头文件重建”待办；11.5.1.107 保留为 ABI/SONAME 与数值 golden。
 - **v4.6（2026-11-13）**：NPP Stage A 与 11.5.1.107 golden 32/32 逐字节一致；反推并实现 NPP fast-cubic/float32/ROI 语义；FFmpeg 与双后端颜色联合链路通过。
 - **v4.5（2026-11-13）**：真实 CUDA/NPP 12 头文件构建 Stage A；FFmpeg `scale_npp` 独立 nonfree 构建加载 shim；P2P3/P3P2 双后端逐字节；补充 nonfree 与 11.5 golden 边界。
