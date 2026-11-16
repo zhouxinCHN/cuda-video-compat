@@ -154,7 +154,8 @@ done
 `nppc_core_probe.cpp` is built and run on both hosts. It is not byte-compared:
 device limits are machine-specific. It checks the semantics NPP clients rely on:
 
-- `nppGetLibVersion` (optionally `--expect-lib-version 11.5.107`);
+- `nppGetLibVersion` (optionally `--expect-lib-version 11.5.1`; the real
+  11.5.1.107 package reports `{11, 5, 1}`, not `11.5.107`);
 - `nppGetGpuNumSMs`, `nppGetMaxThreadsPerBlock`, `nppGetMaxThreadsPerSM`,
   `nppGetGpuDeviceProperties` agree with each other and are non-zero;
 - `nppGetGpuName` is non-empty;

@@ -1,8 +1,10 @@
 // libnppc.so.11 — NPP core API for Stage A.
 //
 // FFmpeg's configure probes nppGetLibVersion from the NPP link set. The target
-// compatibility ABI is NPP 11.5.1.107; the version is virtualized accordingly
-// even when the build host has newer CUDA headers installed.
+// compatibility ABI is NPP 11.5.1.107. On the reference host the real library
+// returns {major=11, minor=5, build=1} for that package (the "107" is the
+// package/build string, not the NppLibraryVersion.build field), so the shim
+// reports the same triple even when built with newer CUDA headers.
 //
 // Device and stream queries are forwarded to the HIP runtime through the plain
 // bridge in npp_gpu_bridge.h. The NPP stream handle is only recorded: the
@@ -28,7 +30,7 @@ bool query_active(npp_gpu::DeviceInfo *info) {
 } // namespace
 
 extern "C" const NppLibraryVersion *nppGetLibVersion(void) {
-    static const NppLibraryVersion version = {11, 5, 107};
+    static const NppLibraryVersion version = {11, 5, 1};
     return &version;
 }
 

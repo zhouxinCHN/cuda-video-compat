@@ -8,7 +8,7 @@
 // state.
 //
 // Usage:
-//   ./nppc_core_probe [--expect-lib-version 11.5.107]
+//   ./nppc_core_probe [--expect-lib-version 11.5.1]
 //
 // Exit code 0 = all checks passed.
 

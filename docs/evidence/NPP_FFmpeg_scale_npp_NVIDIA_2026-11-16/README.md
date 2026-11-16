@@ -97,7 +97,8 @@ python3 tests/npp/compare_ffmpeg_scale_npp.py \
 头文件宏为 `PATCH=1 / BUILD=107`，包版本为 `11.5.1.107`，与安装介质一致；
 差异仅在于 `NppLibraryVersion` 的第三个字段。仓库 shim 目前虚拟化为
 `{11, 5, 107}`（见 `npp_shim/src/nppc_core.cpp`），与真实库返回值不同。
-本轮按约束未修改 shim 或 AMD 侧代码。FFmpeg 的 `configure` 只检查
+本轮按约束未修改 shim 或 AMD 侧代码；后续在 AMD 侧已将 shim 修正为
+`{11,5,1}`，与真实库一致。FFmpeg 的 `configure` 只检查
 `nppGetLibVersion` 符号存在，不比较返回值，因此不影响本矩阵 golden 的生成。
 
 ## 文件

@@ -18,9 +18,10 @@
 合计 26,307,120 bytes 原始输出。`manifest.tsv` 记录每个 case 的几何、
 格式、插值、帧数、字节数和 SHA256；`SHA256SUMS` 是全部 raw 输出的摘要。
 
-**NVIDIA golden 尚未生成**，因此本目录只证明 AMD 侧可重复执行与自洽性，
-不构成与 NVIDIA 的逐字节结论。NVIDIA 侧运行同一脚本后，用
-`tests/npp/compare_ffmpeg_scale_npp.py` 比较两个目录即可给出端到端结论。
+**NVIDIA golden 已完成**：RTX 4060 / 真实 NPP 11.5.1.107 的 40 个 case
+逐 case SHA256 与本目录完全一致（26,307,120 bytes），见
+[NVIDIA golden](../NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/README.md)。本目录的
+raw 输出仍不归档，可用脚本重新生成。
 
 ## 输入口径
 

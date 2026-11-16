@@ -35,8 +35,9 @@ return an explicit error.
   `nppGetMaxThreadsPerSM`, `nppGetGpuDeviceProperties`, `nppGetGpuName`,
   `nppGetStream`, `nppSetStream`, `nppGetStreamContext`, `nppGetStreamNumSMs`,
   `nppGetStreamMaxThreadsPerSM`. Device fields come from
-  `hipGetDeviceProperties`; the version query reports the NPP 11.5.1.107
-  compatibility baseline even though the shim is built with 12.0.1.104 headers.
+  `hipGetDeviceProperties`; `nppGetLibVersion` reports `{11,5,1}`, the value
+  the real NPP 11.5.1.107 library returns, even though the shim is built with
+  12.0.1.104 headers.
 - No NVIDIA NPP headers or binaries are stored in this repository.
 
 ## Build
@@ -80,8 +81,8 @@ Stage A acceptance status:
    vendor ships chip plus driver and does not bundle this nonfree build;
 7. ✅ `libnppc` core API probed on the shim (version, device limits, name,
    stream and stream context);
-8. ⏳ FFmpeg `scale_npp` end-to-end matrix: AMD side deterministic (40/40 cases,
-   26,307,120 bytes); NVIDIA golden comparison pending.
+8. ✅ FFmpeg `scale_npp` end-to-end matrix: 40/40 cases, 26,307,120 bytes;
+   NVIDIA real NPP 11.5.1.107 and the AMD shim have identical per-case SHA256.
 
 ## Known limitations
 

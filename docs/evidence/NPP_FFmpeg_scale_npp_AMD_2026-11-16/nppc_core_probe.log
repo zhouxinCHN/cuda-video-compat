@@ -1,5 +1,5 @@
 PASS: nppGetLibVersion returns a pointer
-INFO: nppGetLibVersion = 11.5.107
+INFO: nppGetLibVersion = 11.5.1
 PASS: library version matches expectation
 INFO: SMs=48 maxThreadsPerBlock=1024 maxThreadsPerSM=2048
 PASS: nppGetGpuNumSMs > 0

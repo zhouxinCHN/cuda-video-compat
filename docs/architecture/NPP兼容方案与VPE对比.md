@@ -1,12 +1,12 @@
 # NPP 兼容方案与 VPE 后处理对比
 
-> 版本：v1.7
+> 版本：v1.8
 > 文档日期：2026-11-16
-> 版本说明：v1.7 补全 `libnppc` 核心 API 并新增 FFmpeg `scale_npp` 端到端矩阵；AMD 侧 40/40 case 重复运行逐字节一致，NVIDIA golden 待补。v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
+> 版本说明：v1.8 完成 FFmpeg `scale_npp` 端到端 NVIDIA golden：真实 NPP 11.5.1.107 与 AMD shim 的 40/40 case、26,307,120 bytes SHA256 一致；同时把 shim 的 `nppGetLibVersion` 修正为真实库返回的 `{11,5,1}`。v1.7 补全 `libnppc` 核心 API 并建立端到端矩阵。v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
 > 目标：让基于 NPP 的 CUDA 应用在自研驱动环境上重编译后能跑；P0 只覆盖 FFmpeg `scale_npp` 实际使用的 3 个函数。
 > 实现底座：HIP kernel（落在 GFX 通用计算引擎），不依赖 VPE 硬件。
 > 职责：本文是 NPP 能力边界、VPE 对比、许可路线、库组织与实现方案的唯一权威文档。P0 符号范围见 [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) §0.4。
-> 状态：**Stage A 核心数值验收通过**：AMD shim 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过；`libnppc` 核心 API 已实现并通过探针。构建头文件已固定为 CUDA/NPP 12.0.1.104。FFmpeg nonfree 构建按交付边界由客户自行完成，我方只交付芯片和驱动、不随产品分发。FFmpeg 端到端矩阵已在 AMD 侧建立（40/40 可重复），NVIDIA golden 待补。剩余：端到端 NVIDIA 对照、真实业务/长稳/目标平台。
+> 状态：**Stage A 核心数值与 FFmpeg 端到端验收通过**：AMD shim 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致；FFmpeg `scale_npp` 端到端 40 case 在真实 NPP 与 shim 两侧 40/40 SHA256 一致（26,307,120 bytes）；`libnppc` 核心 API 已实现并通过探针。构建头文件已固定为 CUDA/NPP 12.0.1.104。FFmpeg nonfree 构建按交付边界由客户自行完成，我方只交付芯片和驱动、不随产品分发。剩余：真实业务/长稳/目标平台。
 
 ---
 
@@ -398,6 +398,8 @@ typedef struct {
 
 shim 的 `nppGetStreamContext` 要用 HIP 填充这些字段（`hipGetDeviceProperties` / `hipDeviceGetAttribute`）。旧式裸 `CUstream` API 也要支持。
 
+版本结构体：真实 NPP 11.5.1.107 的 `nppGetLibVersion()` 返回 `NppLibraryVersion{11,5,1}`；`107` 是 Ubuntu 包版本，不在结构体中。shim 返回同一三元组。
+
 ### 10.2 ROI / mask / scratch buffer
 
 - **ROI**：大量函数带 `NppiRect oSrcROI/oDstROI`，实现时要按 ROI 裁剪，不是全图。
@@ -486,7 +488,7 @@ cuvidDecodePicture（libva 解码到 VAAPI surface）
 | 插值阶段 A 实现 | 3 函数 + nppc；FFmpeg 默认及 `nn/linear/cubic` | AMD | ✅ 与 golden 32/32 条目、2,490,624 bytes 逐字节一致 |
 | `libnppc` 核心 API | 版本/设备/SM/线程/名称/stream/stream context | AMD | ✅ 探针全部通过（`nppc_core_probe`） |
 | FFmpeg P0 | `scale_npp` 跑通 NV12 缩放/转色 | AMD | ✅ 独立 nonfree 构建中 `scale_npp` 已列出并执行；P2P3/P3P2 双后端逐字节通过，三种 resize 功能通过 |
-| FFmpeg 端到端 | 5 尺寸 × nn/linear/cubic/default × nv12/yuv420p | AMD | ✅ 40/40 case、26,307,120 bytes，每 case 重复 2 次逐字节一致；NVIDIA golden 待补 |
+| FFmpeg 端到端 | 5 尺寸 × nn/linear/cubic/default × nv12/yuv420p | AMD + NVIDIA | ✅ 两侧各 40/40 case、26,307,120 bytes，每 case 重复 2 次一致；NVIDIA 真实 NPP 与 AMD shim 的 40/40 SHA256 完全一致 |
 | 插值阶段 B/C | FFmpeg 剩余选项、NPP 全部 interpolation flags | AMD + NVIDIA | ❌ 未开始；未实现模式显式报错 |
 | zero-copy | 解码 → NPP 处理链路 | AMD | ❌ 未开始 |
 
@@ -500,7 +502,7 @@ NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_
 2. **NppStreamContext 字段映射**：已用 `hipGetDeviceProperties` 填充全部公开字段，并通过 `nppc_core_probe` 与独立查询交叉校验；compute capability 报告 HIP 实际值（与 `cuda_shim` 的 `cuDeviceComputeCapability` 一致）。
 3. **scratch buffer / GetBufferSize 语义**：逐函数确认是否需要真实临时显存。
 4. **NPP 库完整性**：P0 只需 5 个库（3 非空 + 2 占位）；完整兼容需 11 个 `.so` 全部产出（占位库也要导出符号，否则链接失败）。
-5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过；FFmpeg 端到端 40 case 已在 AMD 侧证明可重复，尚缺 NVIDIA 逐字节对照。真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
+5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过；FFmpeg 端到端 40 case 已在 NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 两侧 SHA256 一致。真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
 6. **插值范围**：最终覆盖全部 NPP interpolation flag，但分阶段实现；必须先完成阶段 A（cubic/NN/linear）的 NVIDIA 参考和 FFmpeg 验证，再扩展 B/C。
 7. **构建前置条件**：最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 NPP 11.5 头文件重建。运行时 ABI/SONAME 与数值 golden 仍以 NPP 11.5.1.107 为兼容基线；两者职责不同。仓库不会分发 NVIDIA 专有头文件。
 8. **FFmpeg nonfree 与交付边界**：FFmpeg configure 将 `libnpp` 列在 nonfree 列表，`--enable-libnpp` 必须同时 `--enable-nonfree`，产物标记为 nonfree/unredistributable。产品交付范围是**芯片和驱动**，不捆绑启用 NPP 的 FFmpeg、NPP 头文件或其他 nonfree 构建产物；客户自行构建该 FFmpeg 并承担相应许可合规。任何情况下都不能把该构建描述为“LGPL 干净构建”或随驱动分发。

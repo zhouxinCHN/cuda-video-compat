@@ -59,7 +59,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 
 2026-11-13 FFmpeg 宿主矩阵修复后：32 RUN / 32 PASS / 0 FAIL / 0 SKIP，双后端 `nvdec-unsafe` 均 D2D=0 且像素一致。结果与原始日志见 [FFmpeg 宿主双后端基线](../docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。另有带 PTS 的 30 帧 MP4 严格顺序验证，双后端共 8 种模式 8 PASS / 0 FAIL，见 [PTS 顺序验证](../docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
 
-NPP Stage A：用最终基线 CUDA/NPP 12.0.1.104 头文件构建成功（无需 11.5 头文件重建），独立 FFmpeg `scale_npp` 已加载；AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目逐字节一致，P2P3/P3P2 在双解码后端也逐字节一致。`libnppc` 核心 API 已补全并通过 `nppc_core_probe`；FFmpeg `scale_npp` 端到端 40 case 在 AMD 侧重复运行逐字节一致，NVIDIA golden 待补。详见 [AMD vs golden](../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md) 和 [FFmpeg scale_npp AMD](../docs/evidence/NPP_FFmpeg_scale_npp_AMD_2026-11-16/README.md)。
+NPP Stage A：用最终基线 CUDA/NPP 12.0.1.104 头文件构建成功（无需 11.5 头文件重建），独立 FFmpeg `scale_npp` 已加载；AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 的 32/32 条目逐字节一致，P2P3/P3P2 在双解码后端也逐字节一致。`libnppc` 核心 API 已补全并通过 `nppc_core_probe`；FFmpeg `scale_npp` 端到端 40 case 在 NVIDIA 真实 NPP 与 AMD shim 两侧 40/40 SHA256 一致。详见 [AMD vs golden](../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md)、[FFmpeg scale_npp AMD](../docs/evidence/NPP_FFmpeg_scale_npp_AMD_2026-11-16/README.md) 和 [NVIDIA golden](../docs/evidence/NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/README.md)。
 
 ## 注意
 
