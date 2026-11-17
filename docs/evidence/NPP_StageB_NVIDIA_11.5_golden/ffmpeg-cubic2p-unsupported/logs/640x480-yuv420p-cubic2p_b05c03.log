@@ -1,0 +1,5 @@
+[Parsed_scale_npp_2 @ 0x5c7f42d51b80] NPP resize error: -22
+[vf#0:0 @ 0x5c7f434759c0] Error while filtering: Unknown error occurred
+Failed to inject frame into filter network: Unknown error occurred
+Error while filtering: Unknown error occurred
+[out#0/rawvideo @ 0x5c7f43473400] Nothing was written into output file, because at least one of its streams received no packets.

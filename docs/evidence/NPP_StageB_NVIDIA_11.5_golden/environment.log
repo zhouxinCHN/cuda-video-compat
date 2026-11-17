@@ -1,0 +1,76 @@
+date=2026-11-17T10:39:05+08:00
+git_head=231b440a627577391e8700adb09f2e6286f8bfc6
+uname=Linux 6.8.0-138-generic x86_64 GNU/Linux
+
+=== nvidia-smi ===
+name, driver_version, compute_cap, memory.total [MiB]
+NVIDIA GeForce RTX 4060, 595.99.02, 8.9, 8188 MiB
+
+=== nvcc ===
+Copyright (c) 2005-2021 NVIDIA Corporation
+Built on Thu_Nov_18_09:45:30_PST_2021
+Cuda compilation tools, release 11.5, V11.5.119
+Build cuda_11.5.r11.5/compiler.30672275_0
+
+=== NPP headers (/usr/include/npp.h) ===
+#define NPP_VER_MAJOR 11
+#define NPP_VER_MINOR 5
+#define NPP_VER_PATCH 1
+#define NPP_VER_BUILD 107
+
+=== NPP packages ===
+libnppc11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppial11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppicc11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppidei11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppif11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppig11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppim11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppist11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppisu11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnppitc11:amd64 11.5.1.107~11.5.1-1ubuntu1
+libnpps11:amd64 11.5.1.107~11.5.1-1ubuntu1
+
+=== NPP runtime resolution ===
+lrwxrwxrwx 1 root root 21  3月 15  2022 /usr/lib/x86_64-linux-gnu/libnppc.so.11 -> libnppc.so.11.5.1.107
+lrwxrwxrwx 1 root root 22  3月 15  2022 /usr/lib/x86_64-linux-gnu/libnppig.so.11 -> libnppig.so.11.5.1.107
+	libnppig.so.11 => /usr/lib/x86_64-linux-gnu/libnppig.so.11 (0x00007d262bc00000)
+	libnppicc.so.11 => /usr/lib/x86_64-linux-gnu/libnppicc.so.11 (0x00007d262b200000)
+	libcudart.so.11.0 => /usr/lib/x86_64-linux-gnu/libcudart.so.11.0 (0x00007d262ae00000)
+	libnppc.so.11 => /usr/lib/x86_64-linux-gnu/libnppc.so.11 (0x00007d262a200000)
+
+=== build command ===
+make -C tests/npp clean all GPU_RUNTIME=cuda NPP_INCLUDE_DIR=/usr/include CUDA_INCLUDE_DIR=/usr/include CUDA_LIB_DIR=/usr/lib/x86_64-linux-gnu NPP_LIB_DIR=/usr/lib/x86_64-linux-gnu
+
+=== golden generation command ===
+(cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden-b --stage b --skip cubic2p_bspline,cubic2p_catmullrom,cubic2p_b05c03)
+
+=== nppc_core_probe ===
+PASS: nppGetLibVersion returns a pointer
+INFO: nppGetLibVersion = 11.5.1
+PASS: library version matches expectation
+INFO: SMs=24 maxThreadsPerBlock=1024 maxThreadsPerSM=1536
+PASS: nppGetGpuNumSMs > 0
+PASS: nppGetMaxThreadsPerBlock > 0
+PASS: nppGetMaxThreadsPerSM > 0
+PASS: nppGetGpuDeviceProperties succeeds
+PASS: nppGetGpuDeviceProperties threads/SM agrees
+PASS: nppGetGpuDeviceProperties threads/block agrees
+PASS: nppGetGpuDeviceProperties SM count agrees
+INFO: nppGetGpuName = NVIDIA GeForce RTX 4060
+PASS: nppGetGpuName is non-empty
+PASS: default NPP stream is the NULL stream
+PASS: nppSetStream(NULL) succeeds
+PASS: nppGetStream reflects NULL stream
+PASS: nppGetStreamContext succeeds
+PASS: context stream equals nppGetStream
+PASS: context device id is valid
+PASS: context SM count agrees
+PASS: context threads/SM agrees
+PASS: context threads/block agrees
+PASS: context shared memory is non-zero
+INFO: device=0 cc=8.9 smem/block=49152
+PASS: compute capability is reported
+PASS: nppGetStreamNumSMs agrees
+PASS: nppGetStreamMaxThreadsPerSM agrees
+RESULT: PASS (0 failures)

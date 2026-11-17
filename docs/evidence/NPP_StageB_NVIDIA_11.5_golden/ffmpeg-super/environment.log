@@ -1,0 +1,17 @@
+date=2026-11-17T10:38:46+08:00
+ffmpeg=/usr/local/bin/ffmpeg
+ffmpeg version 6.1 Copyright (c) 2000-2023 the FFmpeg developers
+built with gcc 11 (Ubuntu 11.4.0-1ubuntu1~22.04.3)
+configuration: --enable-gpl --enable-nonfree --enable-cuda-nvcc --enable-libnpp --enable-cuvid --enable-nvenc --enable-vaapi --enable-libdrm --extra-cflags=-I/usr/local/cuda/include --extra-ldflags=-L/usr/local/cuda/lib64 --enable-libx264 --enable-libx265 --enable-libvpx --enable-libaom --enable-libopus --enable-libmp3lame --enable-libass
+--- ffmpeg npp linkage ---
+	libnppig.so.11 => /lib/x86_64-linux-gnu/libnppig.so.11 (0x0000775858000000)
+	libnppicc.so.11 => /lib/x86_64-linux-gnu/libnppicc.so.11 (0x0000775857600000)
+	libnppidei.so.11 => /lib/x86_64-linux-gnu/libnppidei.so.11 (0x0000775856a00000)
+	libnppif.so.11 => /lib/x86_64-linux-gnu/libnppif.so.11 (0x0000775852200000)
+	libnppc.so.11 => /lib/x86_64-linux-gnu/libnppc.so.11 (0x000077584fc00000)
+--- libavfilter npp linkage ---
+LD_LIBRARY_PATH=
+npp_runtime=cuda
+npp_library=	libnppig.so.11 => /lib/x86_64-linux-gnu/libnppig.so.11 (0x0000772d48000000)
+source_sha256=19ec213dafde22863f5abdb53e4b91f668264c244bcf6e5cdcebd83aa4b6caf6
+input_mode=lavfi

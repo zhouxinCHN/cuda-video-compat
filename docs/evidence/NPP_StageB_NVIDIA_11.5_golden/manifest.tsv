@@ -1,0 +1,14 @@
+resize	full_320x240_to_160x120	super	resize__full_320x240_to_160x120__super__src.gray	320	240	384	0	0	320	240
+resize	full_320x240_to_160x120	super	resize__full_320x240_to_160x120__super__dst.gray	160	120	192	0	0	160	120
+resize	full_320x240_to_160x120	lanczos	resize__full_320x240_to_160x120__lanczos__src.gray	320	240	384	0	0	320	240
+resize	full_320x240_to_160x120	lanczos	resize__full_320x240_to_160x120__lanczos__dst.gray	160	120	192	0	0	160	120
+resize	full_320x240_to_480x270	lanczos	resize__full_320x240_to_480x270__lanczos__src.gray	320	240	384	0	0	320	240
+resize	full_320x240_to_480x270	lanczos	resize__full_320x240_to_480x270__lanczos__dst.gray	480	270	512	0	0	480	270
+resize	roi_288x224_to_144x112	super	resize__roi_288x224_to_144x112__super__src.gray	320	240	384	16	8	288	224
+resize	roi_288x224_to_144x112	super	resize__roi_288x224_to_144x112__super__dst.gray	144	112	160	0	0	144	112
+resize	roi_288x224_to_144x112	lanczos	resize__roi_288x224_to_144x112__lanczos__src.gray	320	240	384	16	8	288	224
+resize	roi_288x224_to_144x112	lanczos	resize__roi_288x224_to_144x112__lanczos__dst.gray	144	112	160	0	0	144	112
+resize	small_64x48_to_37x29_offset	super	resize__small_64x48_to_37x29_offset__super__src.gray	64	48	80	0	0	64	48
+resize	small_64x48_to_37x29_offset	super	resize__small_64x48_to_37x29_offset__super__dst.gray	41	32	64	4	3	37	29
+resize	small_64x48_to_37x29_offset	lanczos	resize__small_64x48_to_37x29_offset__lanczos__src.gray	64	48	80	0	0	64	48
+resize	small_64x48_to_37x29_offset	lanczos	resize__small_64x48_to_37x29_offset__lanczos__dst.gray	41	32	64	4	3	37	29

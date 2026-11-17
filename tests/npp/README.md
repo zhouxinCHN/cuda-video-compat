@@ -11,9 +11,11 @@ AMD NPP shim. It exercises:
 - full-frame and non-zero ROIs, padded pitches, odd destination dimensions and
   destination ROI offsets.
 
-`--stage a|b|all` selects the resize modes (default `all`). The shim currently
-implements Stage A only; use `--stage a` for the AMD candidate until Stage B
-kernels land, and `--stage all` on the NVIDIA golden host.
+`--stage a|b|all` selects the resize modes (default `all`). `--stage b` emits
+only Stage B resize cases; `--skip LIST` omits named algorithms (for example
+`--skip super` on a host that does not implement it yet). Use `--stage a` to
+reproduce the archived 32-entry Stage A golden and `--stage b` to generate the
+Stage B golden.
 
 The probe never embeds NVIDIA headers or binaries. The same source is used for
 golden and candidate output; `manifest.tsv` records geometry and output files.
@@ -25,6 +27,9 @@ FFmpeg `scale_npp` loads the shim. No rebuild with 11.5 headers is required; the
 NVIDIA NPP 11.5.1.107 golden remains the runtime/ABI numerical reference. The
 AMD candidate matches all 32 entries byte-for-byte; P2P3/P3P2 joint chains pass.
 See [AMD vs golden evidence](../../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md).
+Stage B has an NVIDIA 11.5 golden for Lanczos and Super (14 entries); NPP
+11.5.1.107 rejects `CUBIC2P_*` at runtime, so those modes are not part of the
+11.5 baseline. See section 7.
 The end-to-end FFmpeg matrix and the `libnppc` core API probe are described in
 sections 4 and 5.
 
@@ -243,6 +248,40 @@ byte-for-byte for `yuv420p` and `nv12`:
 ```bash
 FFMPEG_BUILD_DIR=/path/to/ffmpeg tests/npp/verify_hwupload_roundtrip.sh
 ```
+
+## 7. Stage B golden (Lanczos / Super)
+
+NPP 11.5.1.107 implements `NPPI_INTER_LANCZOS` and `NPPI_INTER_SUPER`, but its
+runtime rejects all three `NPPI_INTER_CUBIC2P_*` values with
+`NPP_INTERPOLATION_ERROR` (`-22`) for downscale, identity and upscale; the
+library also contains no cubic2p kernels. The 11.5 Stage B golden therefore
+covers Lanczos and Super only:
+
+```bash
+(cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden-b --stage b \
+  --skip cubic2p_bspline,cubic2p_catmullrom,cubic2p_b05c03)
+```
+
+That produces 14 manifest entries (7 resize cases x src/dst). Super runs only
+on geometries that downscale both axes; the upscaling case is skipped by the
+probe. On the AMD shim use `--stage b --skip super` until supersampling is
+implemented.
+
+FFmpeg end-to-end golden generation for the implemented modes:
+
+```bash
+GEOMETRIES="160x120 214x118 640x480 320x240 100x100" \
+ALGOS="lanczos" NPP_RUNTIME=cuda OUT_DIR=/tmp/scale-npp-b \
+  tests/npp/run_ffmpeg_scale_npp.sh
+
+GEOMETRIES="160x120 214x118 100x100" \
+ALGOS="super" NPP_RUNTIME=cuda OUT_DIR=/tmp/scale-npp-super \
+  tests/npp/run_ffmpeg_scale_npp.sh
+```
+
+Archived results: 10/10 Lanczos and 6/6 Super deterministic, plus the
+`cubic2p` `-22` failure log:
+[NPP Stage B NVIDIA 11.5 golden](../../docs/evidence/NPP_StageB_NVIDIA_11.5_golden/README.md).
 
 ## Stage A acceptance status
 
