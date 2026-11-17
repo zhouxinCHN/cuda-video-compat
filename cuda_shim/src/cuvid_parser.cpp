@@ -60,6 +60,25 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
         H2645NAL &nal = pkt.nals[i];
         switch (nal.type) {
         case NAL_SPS: {
+            // ff_h264_decode_seq_parameter_set() frees and replaces the old SPS
+            // when the new one differs, so snapshot the current values before
+            // parsing; sps_ must not be dereferenced afterwards.
+            int old_mb_width = 0, old_mb_height = 0;
+            int old_crop[4] = {0, 0, 0, 0};
+            int old_chroma = 0, old_depth_luma = 0, old_depth_chroma = 0;
+            const bool had_sps = sps_ != nullptr;
+            if (had_sps) {
+                old_mb_width = sps_->mb_width;
+                old_mb_height = sps_->mb_height;
+                old_crop[0] = sps_->crop_left;
+                old_crop[1] = sps_->crop_right;
+                old_crop[2] = sps_->crop_top;
+                old_crop[3] = sps_->crop_bottom;
+                old_chroma = sps_->chroma_format_idc;
+                old_depth_luma = sps_->bit_depth_luma;
+                old_depth_chroma = sps_->bit_depth_chroma;
+            }
+
             GetBitContext gb = nal.gb;
             ret = ff_h264_decode_seq_parameter_set(&gb, &avctx_, &ps_, 0);
             if (ret < 0) { ff_h2645_packet_uninit(&pkt); return kNotSupported; }
@@ -71,21 +90,21 @@ CUresult CuvidParser::parse_packet_nal(int64_t timestamp) {
             // sequence callback so the host reinitializes its decoder and frame
             // pool. Identical SPS repeats at every IDR must not reset the DPB.
             const bool sequence_changed =
-                sps_ && new_sps &&
-                (new_sps->mb_width != sps_->mb_width ||
-                 new_sps->mb_height != sps_->mb_height ||
-                 new_sps->crop_left != sps_->crop_left ||
-                 new_sps->crop_right != sps_->crop_right ||
-                 new_sps->crop_top != sps_->crop_top ||
-                 new_sps->crop_bottom != sps_->crop_bottom ||
-                 new_sps->chroma_format_idc != sps_->chroma_format_idc ||
-                 new_sps->bit_depth_luma != sps_->bit_depth_luma ||
-                 new_sps->bit_depth_chroma != sps_->bit_depth_chroma);
+                had_sps && new_sps &&
+                (new_sps->mb_width != old_mb_width ||
+                 new_sps->mb_height != old_mb_height ||
+                 new_sps->crop_left != old_crop[0] ||
+                 new_sps->crop_right != old_crop[1] ||
+                 new_sps->crop_top != old_crop[2] ||
+                 new_sps->crop_bottom != old_crop[3] ||
+                 new_sps->chroma_format_idc != old_chroma ||
+                 new_sps->bit_depth_luma != old_depth_luma ||
+                 new_sps->bit_depth_chroma != old_depth_chroma);
             if (sequence_changed) {
                 if (std::getenv("CUVID_SHIM_DEBUG_NAL")) {
                     std::fprintf(stderr,
                                  "SHIM SEQUENCE CHANGE %dx%d -> %dx%d\n",
-                                 sps_->mb_width * 16, sps_->mb_height * 16,
+                                 old_mb_width * 16, old_mb_height * 16,
                                  new_sps->mb_width * 16, new_sps->mb_height * 16);
                 }
                 flush_picture();
