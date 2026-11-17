@@ -75,8 +75,11 @@ die() {
     exit 2
 }
 
-command -v "$FFMPEG" >/dev/null 2>&1 || [ -x "$FFMPEG" ] || \
-    die "ffmpeg not found: $FFMPEG"
+FFMPEG_BIN=$(command -v "$FFMPEG" 2>/dev/null || true)
+if [ -z "$FFMPEG_BIN" ] && [ -x "$FFMPEG" ]; then
+    FFMPEG_BIN=$FFMPEG
+fi
+[ -n "$FFMPEG_BIN" ] || die "ffmpeg not found: $FFMPEG"
 
 OUT_DIR=${OUT_DIR:-"$PWD/ffmpeg-scale-npp-${NPP_RUNTIME}"}
 [ -e "$OUT_DIR/manifest.tsv" ] && die "$OUT_DIR already contains a manifest; use a fresh OUT_DIR"
@@ -106,22 +109,22 @@ run_timeout() {
 # --- environment -----------------------------------------------------------
 {
     echo "date=$(date -Is)"
-    echo "ffmpeg=$FFMPEG"
-    "$FFMPEG" -hide_banner -version 2>&1 | head -3
+    echo "ffmpeg=$FFMPEG_BIN"
+    "$FFMPEG_BIN" -hide_banner -version 2>&1 | head -3
     echo "--- ffmpeg npp linkage ---"
-    ldd "$FFMPEG" 2>/dev/null | grep -E "libnpp|libcuda|amdhip" || true
+    ldd "$FFMPEG_BIN" 2>/dev/null | grep -E "libnpp|libcuda|amdhip" || true
     echo "--- libavfilter npp linkage ---"
-    AVFILTER=$(ldd "$FFMPEG" 2>/dev/null | awk '/libavfilter\.so/ {print $3; exit}')
+    AVFILTER=$(ldd "$FFMPEG_BIN" 2>/dev/null | awk '/libavfilter\.so/ {print $3; exit}')
     if [ -n "${AVFILTER:-}" ]; then
         ldd "$AVFILTER" 2>/dev/null | grep -E "libnpp|libcuda|amdhip" || true
     fi
     echo "LD_LIBRARY_PATH=${LD_LIBRARY_PATH:-}"
 } >"$OUT_DIR/environment.log" 2>&1
 
-"$FFMPEG" -hide_banner -h filter=scale_npp >"$OUT_DIR/logs/filter-help.log" 2>&1 || \
+"$FFMPEG_BIN" -hide_banner -h filter=scale_npp >"$OUT_DIR/logs/filter-help.log" 2>&1 || \
     die "this FFmpeg has no scale_npp filter (libnpp build required)"
 
-NPP_LINE=$(ldd "${AVFILTER:-$FFMPEG}" 2>/dev/null | grep -E "libnpp(ig|icc|c)\.so" | head -1)
+NPP_LINE=$(ldd "${AVFILTER:-$FFMPEG_BIN}" 2>/dev/null | grep -E "libnpp(ig|icc|c)\.so" | head -1)
 [ -n "$NPP_LINE" ] || die "FFmpeg is not linked against NPP libraries"
 case "$NPP_RUNTIME" in
     auto)
@@ -152,7 +155,7 @@ echo "npp_library=$NPP_LINE" >>"$OUT_DIR/environment.log"
 # NVIDIA host this must hash identically; a mismatch means the two hosts
 # generated different input frames and no NPP conclusion can be drawn.
 SOURCE="$OUT_DIR/source-reference.yuv"
-"$FFMPEG" -hide_banner -nostdin -v error \
+"$FFMPEG_BIN" -hide_banner -nostdin -v error \
     -f lavfi -i "testsrc=size=${SRC_WIDTH}x${SRC_HEIGHT}:rate=$RATE:duration=1" \
     -vf format=yuv420p -frames:v "$SRC_FRAMES" -pix_fmt yuv420p \
     -f rawvideo -y "$SOURCE" || die "failed to generate source reference"
@@ -212,7 +215,7 @@ for geom in $GEOMETRIES; do
             first_hash=""
             ok=1
             for run in $(seq 1 "$REPEAT"); do
-                run_timeout "$FFMPEG" "${args[@]}" >"$log" 2>&1
+                run_timeout "$FFMPEG_BIN" "${args[@]}" >"$log" 2>&1
                 rc=$?
                 if [ $rc -ne 0 ]; then
                     echo "FAIL: $case_name run $run exited $rc (see $log)" >&2
