@@ -500,9 +500,13 @@ int main(int argc, char **argv) {
             if (!run_resize_case(test, algorithm, output_dir, manifest)) return 1;
         }
 
-    for (const auto &test : kColorCases) {
-        if (!run_p2p3_case(test, output_dir, manifest, 11)) return 1;
-        if (!run_p3p2_case(test, output_dir, manifest, 23)) return 1;
+    // Color conversion belongs to Stage A; a Stage B-only run must not
+    // duplicate those entries into the Stage B manifest.
+    if (stage != "b") {
+        for (const auto &test : kColorCases) {
+            if (!run_p2p3_case(test, output_dir, manifest, 11)) return 1;
+            if (!run_p3p2_case(test, output_dir, manifest, 23)) return 1;
+        }
     }
 
     std::cout << "NPP outputs written to " << output_dir << " (stage=" << stage << ")\n";
