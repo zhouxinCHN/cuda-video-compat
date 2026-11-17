@@ -5,6 +5,8 @@
 
 #include "npp_common.h"
 
+#include <cstdlib>
+
 extern "C" NppStatus nppiResizeSqrPixel_8u_C1R(
     const Npp8u *pSrc, NppiSize oSrcSize, int nSrcStep, NppiRect oSrcROI,
     Npp8u *pDst, int nDstStep, NppiRect oDstROI,
@@ -25,6 +27,15 @@ extern "C" NppStatus nppiResizeSqrPixel_8u_C1R(
     if (oSrcROI.x + oSrcROI.width > oSrcSize.width ||
         oSrcROI.y + oSrcROI.height > oSrcSize.height) {
         return NPP_WRONG_INTERSECTION_ROI_ERROR;
+    }
+
+    // NPP 11.5.1.107 advertises CUBIC2P_* in its headers but the runtime has
+    // no kernel for them and returns NPP_INTERPOLATION_ERROR. Mirror that
+    // baseline by default; the shim's kernels can be enabled for a future
+    // NPP 12 runtime with NPP_SHIM_ENABLE_CUBIC2P=1.
+    if ((eInterpolation == 5 || eInterpolation == 6 || eInterpolation == 7) &&
+        !std::getenv("NPP_SHIM_ENABLE_CUBIC2P")) {
+        return NPP_INTERPOLATION_ERROR;
     }
 
     const float x_scale = 1.0f / static_cast<float>(nXFactor);

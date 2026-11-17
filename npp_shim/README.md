@@ -83,9 +83,9 @@ Stage A acceptance status:
    stream and stream context);
 8. ✅ FFmpeg `scale_npp` end-to-end matrix: 40/40 cases, 26,307,120 bytes;
    NVIDIA real NPP 11.5.1.107 and the AMD shim have identical per-case SHA256;
-9. ⏳ Stage B: four kernels implemented and FFmpeg executes all of them, but
-   the NVIDIA Stage B golden and byte comparison are pending; SUPER is not
-   implemented.
+9. ⏳ Stage B: Lanczos matches 181,247/181,248 probe bytes, integer-ratio
+   FFmpeg cases match; non-integer FFmpeg cases and SUPER remain open. cubic2p
+   is gated off to mirror NPP 11.5's missing runtime kernel.
 
 ## Known limitations
 
@@ -97,9 +97,15 @@ Stage A acceptance status:
   the default stream; a non-NULL NPP stream is therefore ordering-safe, not
   concurrent.
 - Only 8-bit C1 resize and NV12↔YUV420P 4:2:0 conversion.
-- Stage B kernels for `NPPI_INTER_CUBIC2P_BSPLINE`, `CUBIC2P_CATMULLROM`,
-  `CUBIC2P_B05C03` and `LANCZOS` are implemented but **not yet calibrated**:
-  the NVIDIA Stage B golden has not been generated, so byte-exactness is
-  unproven. `NPPI_INTER_SUPER` returns an explicit error (area-average
-  supersampling is not implemented).
+- Stage B `LANCZOS` follows NPP's sampled-kernel table (0.01 distance grid +
+  linear interpolation, six normalized taps). Probe output matches the NVIDIA
+  11.5 golden on 181,247 of 181,248 bytes (one pixel differs by 1); FFmpeg
+  end-to-end matches on integer scale ratios and still differs on 214x118 and
+  100x100 pending a raw-level diff.
+- `CUBIC2P_BSPLINE/CATMULLROM/B05C03` kernels exist, but NVIDIA NPP 11.5.1.107
+  has no runtime kernel and returns `NPP_INTERPOLATION_ERROR`. The shim mirrors
+  that by default; set `NPP_SHIM_ENABLE_CUBIC2P=1` to enable them (no golden).
+- `NPPI_INTER_SUPER` is not implemented and returns an explicit error. NPP's
+  supersampling is a 2x2 box at exactly 0.5x, but the non-integer downscale
+  rule is not yet reverse-engineered.
 - Stage C (all remaining NPP interpolation flags) is not implemented.

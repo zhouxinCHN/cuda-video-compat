@@ -1,0 +1,22 @@
+# Probe Lanczos vs NVIDIA golden
+resize__full_320x240_to_160x120__lanczos__dst.gray	diff_bytes=0	of=23040
+resize__full_320x240_to_480x270__lanczos__dst.gray	diff_bytes=1	of=138240
+resize__roi_288x224_to_144x112__lanczos__dst.gray	diff_bytes=0	of=17920
+resize__small_64x48_to_37x29_offset__lanczos__dst.gray	diff_bytes=0	of=2048
+
+# FFmpeg Lanczos case hashes
+100x100-nv12-lanczos DIFF
+100x100-yuv420p-lanczos DIFF
+160x120-nv12-lanczos MATCH
+160x120-yuv420p-lanczos MATCH
+214x118-nv12-lanczos DIFF
+214x118-yuv420p-lanczos DIFF
+320x240-nv12-lanczos MATCH
+320x240-yuv420p-lanczos MATCH
+640x480-nv12-lanczos MATCH
+640x480-yuv420p-lanczos MATCH
+
+# Environment
+date=2026-11-17T11:22:45+08:00
+ffmpeg=/tmp/ffmpeg-npp-src/ffmpeg
+ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers

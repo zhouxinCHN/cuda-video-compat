@@ -302,9 +302,10 @@ Archived results: 10/10 Lanczos and 6/6 Super deterministic, plus the
 9. ✅ rawvideo + `hwupload_cuda` cross-frame corruption fixed in `libcuda.so.1`;
    `verify_hwupload_roundtrip.sh` passes 6/6 for `yuv420p` and `nv12`. See
    [hwupload fix evidence](../../docs/evidence/cuda_shim_hwupload_fix_2026-11-16/README.md).
-10. ⏳ Stage B: `cubic2p_bspline`, `cubic2p_catmullrom`, `cubic2p_b05c03` and
-    `lanczos` kernels exist and FFmpeg executes them; the NVIDIA Stage B golden
-    has not been generated, so byte-exactness is unproven. `super` returns an
-    explicit error. On the AMD host run
-    `./npp_stage_a_probe --stage b --skip super` until SUPER lands; the golden
-    host runs `--stage all` without `--skip`.
+10. ⏳ Stage B: `LANCZOS` matches 181,247/181,248 probe bytes against the
+    NVIDIA 11.5 golden and FFmpeg integer-ratio cases match; non-integer
+    FFmpeg cases and `SUPER` remain open. `CUBIC2P_*` is gated off by default
+    because NPP 11.5 has no runtime kernel (returns -22); set
+    `NPP_SHIM_ENABLE_CUBIC2P=1` to exercise it. On the AMD host run
+    `./npp_stage_a_probe --stage b --skip cubic2p_bspline,cubic2p_catmullrom,cubic2p_b05c03,super`;
+    the golden host used the same skip.

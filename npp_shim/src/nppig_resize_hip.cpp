@@ -1,9 +1,15 @@
 // HIP implementation behind libnppig. Compiled by hipcc, no NPP/CUDA headers.
 //
-// NPPI_INTER_CUBIC was reverse-engineered from the NPP 11.5 golden output and
-// NPP 12 PTX. It is not the standard Catmull-Rom kernel: NPP uses a 4-tap
-// "fast cubic" weight polynomial. The weights are reproduced below in float32
-// with the same operation order to preserve byte-exact results.
+// Stage A (NN/linear/cubic) was reverse-engineered from the NPP 11.5 golden
+// output and NPP 12 PTX. NPPI_INTER_CUBIC is not Catmull-Rom but a 4-tap
+// "fast cubic" polynomial; the weights below reproduce its operation order.
+//
+// Stage B: CUBIC2P_* use the Keys two-parameter kernel with (B,C) =
+// (1,0), (0,0.5), (0.5,0.3). LANCZOS follows NPP's implementation found in
+// its SASS: the kernel is sampled on a 0.01 distance grid, the two adjacent
+// samples are linearly interpolated, the six tap weights are divided by their
+// sum, and taps beyond three pixels are zero. NPPI_INTER_SUPER is not
+// implemented here.
 
 #include "npp_gpu_bridge.h"
 
@@ -29,10 +35,7 @@ __device__ __forceinline__ void npp_fast_cubic_weights(float u, float w[4]) {
     w[3] = b * ((t / 3.0f) * (a * 0.5f));
 }
 
-// Two-parameter cubic (Keys) kernel: B=1,C=0 is B-spline, B=0,C=0.5 is
-// Catmull-Rom, B=0.5,C=0.3 is the Mitchell-ish NPP variant. NPP exposes them
-// through CUBIC2P_*; the exact operation order is calibrated against the
-// NVIDIA golden in Stage B.
+// Two-parameter cubic (Keys) kernel.
 __device__ __forceinline__ float cubic_bc(float x, float b, float c) {
     const float ax = fabsf(x);
     if (ax < 1.0f) {
@@ -64,22 +67,17 @@ __device__ __forceinline__ float sinc_npp(float x) {
     return sinf(px) / px;
 }
 
-// Lanczos with three lobes: support (-3, 3), six taps. NPP normalizes the
-// weights; the divisor is the sum of the six samples.
-__device__ __forceinline__ void lanczos3_weights(float u, float w[6]) {
-    const float distance[6] = {
-        2.0f + u, 1.0f + u, u, 1.0f - u, 2.0f - u, 3.0f - u,
-    };
-    float sum = 0.0f;
-    for (int i = 0; i < 6; ++i) {
-        const float d = distance[i];
-        w[i] = fabsf(d) >= 3.0f ? 0.0f : sinc_npp(d) * sinc_npp(d / 3.0f);
-        sum += w[i];
-    }
-    if (sum != 0.0f) {
-        const float inv = 1.0f / sum;
-        for (int i = 0; i < 6; ++i) w[i] *= inv;
-    }
+// NPP samples the Lanczos kernel at 0.01 distance steps and interpolates
+// linearly between the two nearest samples.
+constexpr int kLanczosTableSize = 302;
+
+__device__ __forceinline__ float lanczos_table_weight(const float *table, float x) {
+    x = fabsf(x);
+    if (x >= 3.0f) return 0.0f;
+    const float scaled = x * 100.0f;
+    const int index = static_cast<int>(scaled);
+    const float fraction = scaled - static_cast<float>(index);
+    return fmaf(table[index + 1] - table[index], fraction, table[index]);
 }
 
 __device__ __forceinline__ std::uint8_t round_npp(float value) {
@@ -89,8 +87,19 @@ __device__ __forceinline__ std::uint8_t round_npp(float value) {
         static_cast<unsigned int>(truncf(value + copysignf(0.5f, value))));
 }
 
-template <int Mode> // 1=NN, 2=linear, 4=cubic (NPP interpolation values)
+template <int Mode> // NPP interpolation values: 1,2,4,5,6,7,16
 __global__ void resize_kernel(npp_gpu::ResizeJob job) {
+    __shared__ float lanczos_table[kLanczosTableSize];
+    if (Mode == 16) {
+        const int tid = threadIdx.y * blockDim.x + threadIdx.x;
+        const int stride = blockDim.x * blockDim.y;
+        for (int i = tid; i < kLanczosTableSize; i += stride) {
+            const float x = static_cast<float>(i) / 100.0f;
+            lanczos_table[i] = sinc_npp(x) * sinc_npp(x / 3.0f);
+        }
+        __syncthreads();
+    }
+
     const int dx = blockIdx.x * blockDim.x + threadIdx.x;
     const int dy = blockIdx.y * blockDim.y + threadIdx.y;
     if (dx >= job.dst_width || dy >= job.dst_height) return;
@@ -163,8 +172,6 @@ __global__ void resize_kernel(npp_gpu::ResizeJob job) {
         value = fmaf(wy[2], rows[2], value);
         value = fmaf(wy[3], rows[3], value);
     } else if (Mode == 5 || Mode == 6 || Mode == 7) {
-        // NPPI_INTER_CUBIC2P_*: Keys kernel with (B,C) = (1,0), (0,0.5),
-        // (0.5,0.3).
         float b = 1.0f;
         float c = 0.0f;
         if (Mode == 6) {
@@ -201,11 +208,24 @@ __global__ void resize_kernel(npp_gpu::ResizeJob job) {
         value = fmaf(wy[2], rows[2], value);
         value = fmaf(wy[3], rows[3], value);
     } else if (Mode == 16) {
-        // NPPI_INTER_LANCZOS: three-lobe windowed sinc, six taps.
         float wx[6];
         float wy[6];
-        lanczos3_weights(fx, wx);
-        lanczos3_weights(fy, wy);
+        float sumx = 0.0f;
+        float sumy = 0.0f;
+        for (int i = 0; i < 6; ++i) {
+            wx[i] = lanczos_table_weight(lanczos_table,
+                                         static_cast<float>(i - 2) - fx);
+            wy[i] = lanczos_table_weight(lanczos_table,
+                                         static_cast<float>(i - 2) - fy);
+            sumx += wx[i];
+            sumy += wy[i];
+        }
+        if (sumx != 0.0f) {
+            for (int i = 0; i < 6; ++i) wx[i] = wx[i] / sumx;
+        }
+        if (sumy != 0.0f) {
+            for (int i = 0; i < 6; ++i) wy[i] = wy[i] / sumy;
+        }
 
         int xi[6];
         int yi[6];
@@ -281,8 +301,8 @@ int launch_resize(const ResizeJob &job) {
         resize_kernel<16><<<grid, block>>>(job);
         break;
     case 8:
-        // NPPI_INTER_SUPER: supersampling needs an area-average footprint and
-        // is only valid when both axes downscale. Not implemented yet.
+        // NPPI_INTER_SUPER: not implemented; return an explicit error rather
+        // than silently decoding with another filter.
         return InvalidArgument;
     default:
         return InvalidArgument;
