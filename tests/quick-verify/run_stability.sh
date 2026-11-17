@@ -16,6 +16,8 @@
 #   DURATION_SECONDS           default 1800
 #   RSS_GROWTH_LIMIT_MB        default 64
 #   FD_GROWTH_LIMIT            default 8
+#   MIN_FREE_MB                refuse a run with less free space (default 4096)
+#   LOG_LIMIT_MB               per-run FFmpeg log cap (default 256)
 #   OUT_DIR                    default ./stability
 #   EVIDENCE_DIR               optional
 #   RADV_PERFTEST              default video_decode
@@ -35,6 +37,8 @@ STREAMS=${STREAMS:-"1 8"}
 DURATION_SECONDS=${DURATION_SECONDS:-1800}
 RSS_GROWTH_LIMIT_MB=${RSS_GROWTH_LIMIT_MB:-64}
 FD_GROWTH_LIMIT=${FD_GROWTH_LIMIT:-8}
+MIN_FREE_MB=${MIN_FREE_MB:-4096}
+LOG_LIMIT_MB=${LOG_LIMIT_MB:-256}
 OUT_DIR=${OUT_DIR:-"$PWD/stability"}
 EVIDENCE_DIR=${EVIDENCE_DIR:-}
 RADV_PERFTEST=${RADV_PERFTEST:-video_decode}
@@ -97,9 +101,22 @@ for backend in $BACKENDS; do
             args+=(-map "$index:v" -f null /dev/null)
         done
 
+        free_mb=$(df -Pm "$OUT_DIR" | awk 'NR == 2 { print $4 }')
+        if [ -n "${free_mb:-}" ] && [ "$free_mb" -lt "$MIN_FREE_MB" ]; then
+            echo "FAIL: $case_name needs ${MIN_FREE_MB}MiB free, only ${free_mb}MiB in $OUT_DIR" >&2
+            echo "FAIL $case_name low-disk=${free_mb}MiB" >>"$OUT_DIR/summary.txt"
+            FAILURES=$((FAILURES + 1))
+            continue
+        fi
+
         echo "RUN: $case_name for ${DURATION_SECONDS}s"
-        env CUVID_SHIM_BACKEND=$backend "$FFMPEG" -hide_banner -nostdin -v error \
-            "${args[@]}" >"$log" 2>&1 &
+        # Cap the FFmpeg log: a decoder that errors per frame can otherwise
+        # fill the disk during a long run. ulimit -f counts 512-byte blocks.
+        (
+            ulimit -f $((LOG_LIMIT_MB * 2048)) 2>/dev/null || true
+            exec env CUVID_SHIM_BACKEND=$backend "$FFMPEG" -hide_banner -nostdin \
+                -v error "${args[@]}"
+        ) >"$log" 2>&1 &
         pid=$!
         : >"$samples"
         while kill -0 "$pid" 2>/dev/null; do
