@@ -63,12 +63,18 @@ struct ColorCase {
 struct ResizeAlgorithm {
     const char *name;
     int value;
+    bool stage_b;
 };
 
 const ResizeAlgorithm kAlgorithms[] = {
-    {"nn", NPPI_INTER_NN},
-    {"linear", NPPI_INTER_LINEAR},
-    {"cubic", NPPI_INTER_CUBIC},
+    {"nn", NPPI_INTER_NN, false},
+    {"linear", NPPI_INTER_LINEAR, false},
+    {"cubic", NPPI_INTER_CUBIC, false},
+    {"cubic2p_bspline", NPPI_INTER_CUBIC2P_BSPLINE, true},
+    {"cubic2p_catmullrom", NPPI_INTER_CUBIC2P_CATMULLROM, true},
+    {"cubic2p_b05c03", NPPI_INTER_CUBIC2P_B05C03, true},
+    {"super", NPPI_INTER_SUPER, true},
+    {"lanczos", NPPI_INTER_LANCZOS, true},
 };
 
 const ResizeCase kResizeCases[] = {
@@ -439,10 +445,20 @@ bool run_p3p2_case(const ColorCase &test, const std::filesystem::path &output_di
 
 int main(int argc, char **argv) {
     std::filesystem::path output_dir = "npp-stage-a-output";
-    if (argc > 2 && std::strcmp(argv[1], "--output") == 0) {
-        output_dir = argv[2];
-    } else if (argc != 1) {
-        std::cerr << "usage: " << argv[0] << " [--output DIR]\n";
+    std::string stage = "all";
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
+            output_dir = argv[++i];
+        } else if (std::strcmp(argv[i], "--stage") == 0 && i + 1 < argc) {
+            stage = argv[++i];
+        } else {
+            std::cerr << "usage: " << argv[0]
+                      << " [--output DIR] [--stage a|b|all]\n";
+            return 2;
+        }
+    }
+    if (stage != "a" && stage != "b" && stage != "all") {
+        std::cerr << "--stage must be a, b or all\n";
         return 2;
     }
 
@@ -460,14 +476,25 @@ int main(int argc, char **argv) {
     }
 
     for (const auto &test : kResizeCases)
-        for (const auto &algorithm : kAlgorithms)
+        for (const auto &algorithm : kAlgorithms) {
+            const bool wanted = stage == "all" ||
+                                (stage == "a" && !algorithm.stage_b) ||
+                                (stage == "b" && algorithm.stage_b);
+            if (!wanted) continue;
+            // NPP's supersampling filter accepts downscaling only.
+            if (algorithm.value == NPPI_INTER_SUPER &&
+                (test.dst_width > test.src_roi_width ||
+                 test.dst_height > test.src_roi_height)) {
+                continue;
+            }
             if (!run_resize_case(test, algorithm, output_dir, manifest)) return 1;
+        }
 
     for (const auto &test : kColorCases) {
         if (!run_p2p3_case(test, output_dir, manifest, 11)) return 1;
         if (!run_p3p2_case(test, output_dir, manifest, 23)) return 1;
     }
 
-    std::cout << "NPP Stage A outputs written to " << output_dir << "\n";
+    std::cout << "NPP outputs written to " << output_dir << " (stage=" << stage << ")\n";
     return 0;
 }

@@ -3,11 +3,17 @@
 `npp_stage_a_probe.cpp` is compiled once against NVIDIA NPP and once against the
 AMD NPP shim. It exercises:
 
-- `nppiResizeSqrPixel_8u_C1R` with NN, linear and cubic;
+- `nppiResizeSqrPixel_8u_C1R` with NN, linear and cubic (Stage A), plus the
+  Stage B modes `CUBIC2P_BSPLINE`, `CUBIC2P_CATMULLROM`, `CUBIC2P_B05C03`,
+  `LANCZOS` and `SUPER` (SUPER only for downscaling cases);
 - `nppiYCbCr420_8u_P2P3R`;
 - `nppiYCbCr420_8u_P3P2R`;
 - full-frame and non-zero ROIs, padded pitches, odd destination dimensions and
   destination ROI offsets.
+
+`--stage a|b|all` selects the resize modes (default `all`). The shim currently
+implements Stage A only; use `--stage a` for the AMD candidate until Stage B
+kernels land, and `--stage all` on the NVIDIA golden host.
 
 The probe never embeds NVIDIA headers or binaries. The same source is used for
 golden and candidate output; `manifest.tsv` records geometry and output files.
@@ -35,8 +41,12 @@ make -C tests/npp clean all \
   NPP_LIB_DIR=/usr/local/cuda/lib64
 
 mkdir -p /tmp/npp-golden
-(cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden)
+(cd tests/npp && ./npp_stage_a_probe --output /tmp/npp-golden --stage all)
 ```
+
+The Stage B golden uses the same command; the manifest simply contains the
+additional resize entries. Keep it separate from the Stage A golden directory so
+the existing 32-entry comparison remains a fixed baseline.
 
 If the NVIDIA host has a different NPP library root, set `NPP_LIB_DIR`
 accordingly. The binary records no host names; archive the NPP version and

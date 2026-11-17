@@ -38,6 +38,10 @@
 #   SHIM_DIR          expected shim directory for NPP_RUNTIME=shim
 #   OUT_DIR           output directory; must not contain a previous manifest
 #   INPUT_MODE        lavfi | rawvideo (default lavfi)
+#   GEOMETRIES        destination sizes (default 5 target sizes)
+#   ALGOS             FFmpeg interp_algo names; "default" omits the option
+#                     (default "nn linear cubic default"; Stage B adds
+#                     cubic2p_bspline cubic2p_catmullrom cubic2p_b05c03 super lanczos)
 #   SRC_WIDTH/SRC_HEIGHT/SRC_FRAMES  fixture geometry (default 320/240/5)
 #   REPEAT            runs per case; all runs must hash identically (default 2)
 #   TIMEOUT_SECONDS   per-run timeout (default 60)
@@ -173,8 +177,8 @@ case "$INPUT_MODE" in
 esac
 
 # --- matrix ----------------------------------------------------------------
-GEOMETRIES="160x120 214x118 640x480 320x240 100x100"
-ALGOS="nn linear cubic default"
+GEOMETRIES=${GEOMETRIES:-"160x120 214x118 640x480 320x240 100x100"}
+ALGOS=${ALGOS:-"nn linear cubic default"}
 FORMATS="nv12 yuv420p"
 TOTAL_BYTES=0
 COUNT=0
