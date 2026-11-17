@@ -1,6 +1,6 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.14
+> 版本：v4.15
 > 文档日期：2026-11-16
 > 技术事实截止：2026-11-16
 > 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
@@ -164,7 +164,7 @@
 | `VulkanH264Decoder` | Vulkan Video 解码、拷贝、导出 | `cuda_shim/src/vulkan_h264_decoder.cpp` | H.264 数据通路可用；多流/reconfigure 未覆盖 |
 | `CuvidParser` | SPS/PPS/slice 解析、DPB、显示序 | `cuda_shim/src/cuvid_parser.cpp` | I/P/B 四路码流通过；多 slice 组装、序列变化检测已实现；多流/长期参考待补 |
 | `HipFrameMapping` | VAAPI/VK 导出 fd → HIP 导入、布局门禁 | `cuda_shim/src/hip_frame_mapper.cpp` | VAAPI/VK 路径均通过；fd 所有权已处理 |
-| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | Stage A HIP 实现和 5 个 SONAME 库 | ✅ 32/32 NVIDIA golden 逐字节；FFmpeg `scale_npp` 与双后端颜色联合链路通过；`libnppc` 核心 API 完整（版本/设备/stream/stream context） |
+| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | Stage A HIP 实现和 5 个 SONAME 库 | ✅ 32/32 NVIDIA golden 逐字节；FFmpeg `scale_npp` 与双后端颜色联合链路通过；`libnppc` 核心 API 完整；Stage B 四算法已实现、golden 待补 |
 
 ### 2.2 零拷贝可行性实验
 
@@ -1242,6 +1242,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.15（2026-11-16）**：NPP Stage B 四个 kernel（cubic2p_bspline/catmullrom/b05c03、lanczos）实现并接入探针/FFmpeg 矩阵；NVIDIA Stage B golden 未生成，SUPER 未实现。
 - **v4.14（2026-11-16）**：新增 1080p/4K 正确性矩阵（8/8 通过）和 1/8 路 30 分钟长稳脚本；长稳结果待归档。
 - **v4.13（2026-11-16）**：`VkSequenceCache` 改为线程局部，修复多流参数集串扰；新增 CUVID 级动态分辨率宿主和 8 路并发脚本，双后端分别 22/22 帧、8/8 路与软件一致。FFmpeg CLI 动态分辨率限制与 LTR 仍记录为缺口。
 - **v4.12（2026-11-16）**：多 slice 组装与 VK 多 slice 提交、1080p 裁剪 chroma 视图、序列变化检测、unmap 同步；新增 `run_decode_scenarios.sh`，多 slice/crop/seek × cuvid/nvdec × 双后端 12/12 通过；动态分辨率与 LTR 记录为剩余缺口。

@@ -82,7 +82,10 @@ Stage A acceptance status:
 7. ✅ `libnppc` core API probed on the shim (version, device limits, name,
    stream and stream context);
 8. ✅ FFmpeg `scale_npp` end-to-end matrix: 40/40 cases, 26,307,120 bytes;
-   NVIDIA real NPP 11.5.1.107 and the AMD shim have identical per-case SHA256.
+   NVIDIA real NPP 11.5.1.107 and the AMD shim have identical per-case SHA256;
+9. ⏳ Stage B: four kernels implemented and FFmpeg executes all of them, but
+   the NVIDIA Stage B golden and byte comparison are pending; SUPER is not
+   implemented.
 
 ## Known limitations
 
@@ -94,5 +97,9 @@ Stage A acceptance status:
   the default stream; a non-NULL NPP stream is therefore ordering-safe, not
   concurrent.
 - Only 8-bit C1 resize and NV12↔YUV420P 4:2:0 conversion.
-- Stage B (remaining FFmpeg interpolation options) and Stage C (all NPP
-  interpolation flags) are not implemented.
+- Stage B kernels for `NPPI_INTER_CUBIC2P_BSPLINE`, `CUBIC2P_CATMULLROM`,
+  `CUBIC2P_B05C03` and `LANCZOS` are implemented but **not yet calibrated**:
+  the NVIDIA Stage B golden has not been generated, so byte-exactness is
+  unproven. `NPPI_INTER_SUPER` returns an explicit error (area-average
+  supersampling is not implemented).
+- Stage C (all remaining NPP interpolation flags) is not implemented.

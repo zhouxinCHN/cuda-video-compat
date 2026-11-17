@@ -446,14 +446,17 @@ bool run_p3p2_case(const ColorCase &test, const std::filesystem::path &output_di
 int main(int argc, char **argv) {
     std::filesystem::path output_dir = "npp-stage-a-output";
     std::string stage = "all";
+    std::string skip;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--output") == 0 && i + 1 < argc) {
             output_dir = argv[++i];
         } else if (std::strcmp(argv[i], "--stage") == 0 && i + 1 < argc) {
             stage = argv[++i];
+        } else if (std::strcmp(argv[i], "--skip") == 0 && i + 1 < argc) {
+            skip = argv[++i];
         } else {
             std::cerr << "usage: " << argv[0]
-                      << " [--output DIR] [--stage a|b|all]\n";
+                      << " [--output DIR] [--stage a|b|all] [--skip LIST]\n";
             return 2;
         }
     }
@@ -481,6 +484,13 @@ int main(int argc, char **argv) {
                                 (stage == "a" && !algorithm.stage_b) ||
                                 (stage == "b" && algorithm.stage_b);
             if (!wanted) continue;
+            // --skip lets a host omit algorithms its shim does not implement
+            // yet (for example super) without changing the golden manifest.
+            if (!skip.empty()) {
+                std::string list = "," + skip + ",";
+                const std::string name = std::string(",") + algorithm.name + ",";
+                if (list.find(name) != std::string::npos) continue;
+            }
             // NPP's supersampling filter accepts downscaling only.
             if (algorithm.value == NPPI_INTER_SUPER &&
                 (test.dst_width > test.src_roi_width ||

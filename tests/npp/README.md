@@ -263,3 +263,9 @@ FFMPEG_BUILD_DIR=/path/to/ffmpeg tests/npp/verify_hwupload_roundtrip.sh
 9. ✅ rawvideo + `hwupload_cuda` cross-frame corruption fixed in `libcuda.so.1`;
    `verify_hwupload_roundtrip.sh` passes 6/6 for `yuv420p` and `nv12`. See
    [hwupload fix evidence](../../docs/evidence/cuda_shim_hwupload_fix_2026-11-16/README.md).
+10. ⏳ Stage B: `cubic2p_bspline`, `cubic2p_catmullrom`, `cubic2p_b05c03` and
+    `lanczos` kernels exist and FFmpeg executes them; the NVIDIA Stage B golden
+    has not been generated, so byte-exactness is unproven. `super` returns an
+    explicit error. On the AMD host run
+    `./npp_stage_a_probe --stage b --skip super` until SUPER lands; the golden
+    host runs `--stage all` without `--skip`.

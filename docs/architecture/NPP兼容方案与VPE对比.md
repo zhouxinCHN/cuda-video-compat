@@ -1,8 +1,8 @@
 # NPP 兼容方案与 VPE 后处理对比
 
-> 版本：v1.8
+> 版本：v1.9
 > 文档日期：2026-11-16
-> 版本说明：v1.8 完成 FFmpeg `scale_npp` 端到端 NVIDIA golden：真实 NPP 11.5.1.107 与 AMD shim 的 40/40 case、26,307,120 bytes SHA256 一致；同时把 shim 的 `nppGetLibVersion` 修正为真实库返回的 `{11,5,1}`。v1.7 补全 `libnppc` 核心 API 并建立端到端矩阵。v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
+> 版本说明：v1.9 实现 Stage B 的 CUBIC2P_BSPLINE/CATMULLROM/B05C03/LANCZOS kernel，探针与 FFmpeg 矩阵扩展到 Stage B；NVIDIA Stage B golden 尚未生成，字节一致性未验证，SUPER 未实现。v1.8 完成 FFmpeg `scale_npp` 端到端 NVIDIA golden：真实 NPP 11.5.1.107 与 AMD shim 的 40/40 case、26,307,120 bytes SHA256 一致；同时把 shim 的 `nppGetLibVersion` 修正为真实库返回的 `{11,5,1}`。v1.7 补全 `libnppc` 核心 API 并建立端到端矩阵。v1.6 确定产品只交付芯片和驱动，NPP-enabled FFmpeg 由客户自行构建；我方不捆绑 nonfree FFmpeg 或 NPP 头文件。v1.5 确认最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 11.5 头文件重建；11.5.1.107 仅保留为 ABI/数值 golden。v1.4 将 AMD candidate 与 NVIDIA NPP 11.5.1.107 golden 全量比较，32/32 条目、2,490,624 bytes 逐字节一致。
 > 目标：让基于 NPP 的 CUDA 应用在自研驱动环境上重编译后能跑；P0 只覆盖 FFmpeg `scale_npp` 实际使用的 3 个函数。
 > 实现底座：HIP kernel（落在 GFX 通用计算引擎），不依赖 VPE 硬件。
 > 职责：本文是 NPP 能力边界、VPE 对比、许可路线、库组织与实现方案的唯一权威文档。P0 符号范围见 [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) §0.4。
@@ -489,6 +489,7 @@ cuvidDecodePicture（libva 解码到 VAAPI surface）
 | `libnppc` 核心 API | 版本/设备/SM/线程/名称/stream/stream context | AMD | ✅ 探针全部通过（`nppc_core_probe`） |
 | FFmpeg P0 | `scale_npp` 跑通 NV12 缩放/转色 | AMD | ✅ 独立 nonfree 构建中 `scale_npp` 已列出并执行；P2P3/P3P2 双后端逐字节通过，三种 resize 功能通过 |
 | FFmpeg 端到端 | 5 尺寸 × nn/linear/cubic/default × nv12/yuv420p | AMD + NVIDIA | ✅ 两侧各 40/40 case、26,307,120 bytes，每 case 重复 2 次一致；NVIDIA 真实 NPP 与 AMD shim 的 40/40 SHA256 完全一致 |
+| Stage B kernel | CUBIC2P_BSPLINE/CATMULLROM/B05C03/LANCZOS | AMD | ⏳ 已实现并可执行；NVIDIA Stage B golden 未生成，字节一致性未验证；SUPER 未实现 |
 | 插值阶段 B/C | FFmpeg 剩余选项、NPP 全部 interpolation flags | AMD + NVIDIA | ❌ 未开始；未实现模式显式报错 |
 | zero-copy | 解码 → NPP 处理链路 | AMD | ❌ 未开始 |
 
@@ -503,7 +504,7 @@ NVIDIA 侧 FFmpeg 后处理操作矩阵结果见 `docs/evidence/results/npp_vpp_
 3. **scratch buffer / GetBufferSize 语义**：逐函数确认是否需要真实临时显存。
 4. **NPP 库完整性**：P0 只需 5 个库（3 非空 + 2 占位）；完整兼容需 11 个 `.so` 全部产出（占位库也要导出符号，否则链接失败）。
 5. **P0 联合链路**：Stage A 三算法和两种平面转换已通过 NVIDIA golden；FFmpeg `scale_npp` 与双后端 P2P3/P3P2 已通过；FFmpeg 端到端 40 case 已在 NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 两侧 SHA256 一致。真实业务线程/队列、1080p/4K、多流、长稳和目标平台尚未验收。
-6. **插值范围**：最终覆盖全部 NPP interpolation flag，但分阶段实现；必须先完成阶段 A（cubic/NN/linear）的 NVIDIA 参考和 FFmpeg 验证，再扩展 B/C。
+6. **插值范围**：最终覆盖全部 NPP interpolation flag，但分阶段实现。阶段 A 已通过 NVIDIA golden；阶段 B 的四个 cubic2p/Lanczos kernel 已实现，仍缺 NVIDIA Stage B golden 和 SUPER。
 7. **构建前置条件**：最终构建头文件固定为 CUDA/NPP 12.0.1.104，不再要求用 NPP 11.5 头文件重建。运行时 ABI/SONAME 与数值 golden 仍以 NPP 11.5.1.107 为兼容基线；两者职责不同。仓库不会分发 NVIDIA 专有头文件。
 8. **FFmpeg nonfree 与交付边界**：FFmpeg configure 将 `libnpp` 列在 nonfree 列表，`--enable-libnpp` 必须同时 `--enable-nonfree`，产物标记为 nonfree/unredistributable。产品交付范围是**芯片和驱动**，不捆绑启用 NPP 的 FFmpeg、NPP 头文件或其他 nonfree 构建产物；客户自行构建该 FFmpeg 并承担相应许可合规。任何情况下都不能把该构建描述为“LGPL 干净构建”或随驱动分发。
 9. **NVIDIA golden 已固化**：已在 RTX 4060 / NPP 11.5.1.107 运行 `tests/npp` 探针，32 条 golden 与 SHA256 见 [NVIDIA 11.5 golden](../evidence/NPP_StageA_NVIDIA_11.5_golden/README.md)；后续扩展模式仍须在参考机补 golden。

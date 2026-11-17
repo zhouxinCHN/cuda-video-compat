@@ -29,6 +29,59 @@ __device__ __forceinline__ void npp_fast_cubic_weights(float u, float w[4]) {
     w[3] = b * ((t / 3.0f) * (a * 0.5f));
 }
 
+// Two-parameter cubic (Keys) kernel: B=1,C=0 is B-spline, B=0,C=0.5 is
+// Catmull-Rom, B=0.5,C=0.3 is the Mitchell-ish NPP variant. NPP exposes them
+// through CUBIC2P_*; the exact operation order is calibrated against the
+// NVIDIA golden in Stage B.
+__device__ __forceinline__ float cubic_bc(float x, float b, float c) {
+    const float ax = fabsf(x);
+    if (ax < 1.0f) {
+        return ((12.0f - 9.0f * b - 6.0f * c) * ax * ax * ax +
+                (-18.0f + 12.0f * b + 6.0f * c) * ax * ax +
+                (6.0f - 2.0f * b)) /
+               6.0f;
+    }
+    if (ax < 2.0f) {
+        return ((-b - 6.0f * c) * ax * ax * ax +
+                (6.0f * b + 30.0f * c) * ax * ax +
+                (-12.0f * b - 48.0f * c) * ax +
+                (8.0f * b + 24.0f * c)) /
+               6.0f;
+    }
+    return 0.0f;
+}
+
+__device__ __forceinline__ void cubic2p_weights(float u, float b, float c, float w[4]) {
+    w[0] = cubic_bc(1.0f + u, b, c);
+    w[1] = cubic_bc(u, b, c);
+    w[2] = cubic_bc(1.0f - u, b, c);
+    w[3] = cubic_bc(2.0f - u, b, c);
+}
+
+__device__ __forceinline__ float sinc_npp(float x) {
+    if (fabsf(x) < 1.0e-7f) return 1.0f;
+    const float px = 3.14159265358979323846f * x;
+    return sinf(px) / px;
+}
+
+// Lanczos with three lobes: support (-3, 3), six taps. NPP normalizes the
+// weights; the divisor is the sum of the six samples.
+__device__ __forceinline__ void lanczos3_weights(float u, float w[6]) {
+    const float distance[6] = {
+        2.0f + u, 1.0f + u, u, 1.0f - u, 2.0f - u, 3.0f - u,
+    };
+    float sum = 0.0f;
+    for (int i = 0; i < 6; ++i) {
+        const float d = distance[i];
+        w[i] = fabsf(d) >= 3.0f ? 0.0f : sinc_npp(d) * sinc_npp(d / 3.0f);
+        sum += w[i];
+    }
+    if (sum != 0.0f) {
+        const float inv = 1.0f / sum;
+        for (int i = 0; i < 6; ++i) w[i] *= inv;
+    }
+}
+
 __device__ __forceinline__ std::uint8_t round_npp(float value) {
     value = fminf(255.0f, fmaxf(0.0f, value));
     // NPP adds a signed 0.5 with round-toward-zero and truncates.
@@ -83,7 +136,7 @@ __global__ void resize_kernel(npp_gpu::ResizeJob job) {
             fmaf(wx0, job.src[static_cast<long long>(y1) * job.src_step + x0],
                  fx * job.src[static_cast<long long>(y1) * job.src_step + x1]);
         value = fmaf(1.0f - fy, top, fy * bottom);
-    } else {
+    } else if (Mode == 4) {
         float wx[4];
         float wy[4];
         npp_fast_cubic_weights(fx, wx);
@@ -109,6 +162,68 @@ __global__ void resize_kernel(npp_gpu::ResizeJob job) {
         value = fmaf(wy[1], rows[1], value);
         value = fmaf(wy[2], rows[2], value);
         value = fmaf(wy[3], rows[3], value);
+    } else if (Mode == 5 || Mode == 6 || Mode == 7) {
+        // NPPI_INTER_CUBIC2P_*: Keys kernel with (B,C) = (1,0), (0,0.5),
+        // (0.5,0.3).
+        float b = 1.0f;
+        float c = 0.0f;
+        if (Mode == 6) {
+            b = 0.0f;
+            c = 0.5f;
+        } else if (Mode == 7) {
+            b = 0.5f;
+            c = 0.3f;
+        }
+        float wx[4];
+        float wy[4];
+        cubic2p_weights(fx, b, c, wx);
+        cubic2p_weights(fy, b, c, wy);
+
+        int xi[4];
+        int yi[4];
+        for (int i = 0; i < 4; ++i) {
+            xi[i] = clamp_index(bx - 1 + i, 0, full_x1);
+            yi[i] = clamp_index(by - 1 + i, 0, full_y1);
+        }
+
+        float rows[4];
+        for (int j = 0; j < 4; ++j) {
+            const std::uint8_t *row =
+                job.src + static_cast<long long>(yi[j]) * job.src_step;
+            float h = wx[0] * row[xi[0]];
+            h = fmaf(wx[1], row[xi[1]], h);
+            h = fmaf(wx[2], row[xi[2]], h);
+            h = fmaf(wx[3], row[xi[3]], h);
+            rows[j] = h;
+        }
+        value = wy[0] * rows[0];
+        value = fmaf(wy[1], rows[1], value);
+        value = fmaf(wy[2], rows[2], value);
+        value = fmaf(wy[3], rows[3], value);
+    } else if (Mode == 16) {
+        // NPPI_INTER_LANCZOS: three-lobe windowed sinc, six taps.
+        float wx[6];
+        float wy[6];
+        lanczos3_weights(fx, wx);
+        lanczos3_weights(fy, wy);
+
+        int xi[6];
+        int yi[6];
+        for (int i = 0; i < 6; ++i) {
+            xi[i] = clamp_index(bx - 2 + i, 0, full_x1);
+            yi[i] = clamp_index(by - 2 + i, 0, full_y1);
+        }
+
+        float rows[6];
+        for (int j = 0; j < 6; ++j) {
+            const std::uint8_t *row =
+                job.src + static_cast<long long>(yi[j]) * job.src_step;
+            float h = wx[0] * row[xi[0]];
+            for (int i = 1; i < 6; ++i) h = fmaf(wx[i], row[xi[i]], h);
+            rows[j] = h;
+        }
+        value = wy[0] * rows[0];
+        for (int j = 1; j < 6; ++j) value = fmaf(wy[j], rows[j], value);
     }
 
     const long long output =
@@ -153,6 +268,22 @@ int launch_resize(const ResizeJob &job) {
     case 4:
         resize_kernel<4><<<grid, block>>>(job);
         break;
+    case 5:
+        resize_kernel<5><<<grid, block>>>(job);
+        break;
+    case 6:
+        resize_kernel<6><<<grid, block>>>(job);
+        break;
+    case 7:
+        resize_kernel<7><<<grid, block>>>(job);
+        break;
+    case 16:
+        resize_kernel<16><<<grid, block>>>(job);
+        break;
+    case 8:
+        // NPPI_INTER_SUPER: supersampling needs an area-average footprint and
+        // is only valid when both axes downscale. Not implemented yet.
+        return InvalidArgument;
     default:
         return InvalidArgument;
     }
