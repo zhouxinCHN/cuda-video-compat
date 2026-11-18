@@ -21,6 +21,7 @@
 |---|---|
 | [内存与同步模型](architecture/内存与同步模型.md) | UVA vs UVM、`cuvidMapVideoFrame64` 契约、VAAPI/Vulkan 导出导入、同步基线、零拷贝验证结论 |
 | [CUVID 到 VAAPI 映射表与 P0 API 覆盖](architecture/CUVID到VAAPI映射表.md) | P0 符号范围与不承诺项、CUVID/VAAPI 函数与结构体映射、parser 复用、libcuda 状态 |
+| [解码层接口兼容详细设计](architecture/解码层接口兼容详细设计.md) | 解码层全部兼容接口的语义、功能分类、分类数据流程，以及后端无关接口与 VAAPI/Vulkan 分后端接口的逐项实现设计 |
 | [NVDEC 与 VAAPI 解码对比](architecture/NVDEC与VAAPI解码对比.md) | 历史格式能力矩阵、NVDEC 直测性能、环境差异 |
 | [NPP 兼容方案与 VPE 对比](architecture/NPP兼容方案与VPE对比.md) | NPP 26 项能力、VPE 能力与 VAAPI 暴露面、许可路线、库组织与实现方案 |
 | [Vulkan Video 方案评估](architecture/Vulkan_Video方案评估.md) | Vulkan Video 能力探测、编码风险、VAAPI/Vulkan 选型依据 |

@@ -127,6 +127,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 - [仓库结构与迁移](docs/仓库结构与迁移.md)
 - [内存与同步模型](docs/architecture/内存与同步模型.md)
 - [CUVID 到 VAAPI 映射表与 P0 API 覆盖](docs/architecture/CUVID到VAAPI映射表.md)
+- [解码层接口兼容详细设计](docs/architecture/解码层接口兼容详细设计.md)：接口语义、功能分类、数据流程与逐接口设计
 - [Vulkan 后端实现](docs/architecture/Vulkan后端实现.md)
 - [验证手册](docs/verification/验证手册.md)
 - [P0 闭环验证结果](docs/evidence/P0闭环验证结果_2026-11-12.md)
