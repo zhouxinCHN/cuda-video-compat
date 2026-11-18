@@ -14,7 +14,7 @@
 |---|---|
 | Vulkan Video 能否实现编解码？ | **可行**，且是比 VAAPI 更「跨厂商」的开放标准，但生态和驱动成熟度目前不如 VAAPI |
 | 能否与 HIP 零拷贝？ | **有条件可以**：`VK_KHR_external_memory_fd` 导出 dma-buf ↔ `hipImportExternalMemory` 导入可行；但 Vulkan Video 解码输出必须是 OPTIMAL tiling，需先 GPU 内拷贝到线性 buffer，因此不是严格零拷贝 |
-| 现在能否验证？ | **已验证**：RX 7900 XTX / RADV 上四路码流 82/82 逐字节一致，见 [Vulkan 后端实现](Vulkan后端实现.md) §8 |
+| 当前验证状态 | 见[当前能力矩阵](../当前能力矩阵.md)；历史实测环境为 RX 7900 XTX / RADV |
 
 ---
 
@@ -54,7 +54,7 @@ Vulkan 是 Khronos 的低层图形/计算 API（OpenGL/OpenCL 的继任者）。
 
 ## 三、Vulkan Video vs VAAPI 对比（选型依据）
 
-| 维度 | VAAPI（已选方案） | Vulkan Video（本方案） |
+| 维度 | VAAPI（候选方案 A） | Vulkan Video（候选方案 B） |
 |---|---|---|
 | 标准组织 | Linux 生态（Intel/AMD 主导） | Khronos（跨平台：Linux/Windows/Android） |
 | 驱动成熟度 | **很成熟**，AMD/Intel/NVIDIA(经 libva) 都有 | 较新，**Mesa RADV 自 2023 才逐步落地**，编码尤其滞后 |
@@ -360,21 +360,10 @@ hipImportExternalSemaphore: operation not supported
 
 ### 7.5 下一步建议
 
-1. 两后端继续使用同一宿主、像素、零拷贝、PTS 和资源判据；
-2. 补齐真实业务线程/队列、多 slice、多流、1080p/4K 和目标平台结果；
-3. 基于同口径证据进行后端选型，不以文档预设代替决策。
+两后端继续使用同一宿主、像素、零拷贝、PTS 和资源判据；具体已覆盖项与待补项统一见[当前能力矩阵](../当前能力矩阵.md)，基于同口径证据进行后端选型，不以文档预设代替决策。
 
 ---
 
 ## 八、当前状态与下一步
 
-- [x] 已写 `verify_vulkan_video.cpp` + `Makefile`（基础验证）
-- [x] 已写 `verify_vulkan_video_full.cpp` + `Makefile`（完整验证 V1-V4, V6）
-- [x] 已细化「Vulkan Video 编码」失败风险与多级降级策略（§6）
-- [x] **已在 AMD 机器完成实测**（RX 7900 XTX，结果见 §7）
-- [x] 实测结论：编解码能力完整，但零拷贝受限（只支持 OPTIMAL tiling），异步同步未落地
-- [x] 已实现 Vulkan Video 后端并完成 P0 数据通路（结果见 [Vulkan 后端实现 §8](Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)）
-- [x] FFmpeg 双后端宿主矩阵 32/32，Vulkan `h264_nvdec` 通过合成参数集接入
-- [ ] 后端选型仍待真实业务、多 slice/多流、1080p/4K、长稳和目标平台同口径验收
-
-**总风险定调**：Vulkan Video 编解码能力完整，但零拷贝和异步同步受限；VAAPI 与 Vulkan 同级，需以同口径证据完成选型。
+当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文保留 §7 的历史能力探测结果和 §6 的编码专项风险分析，不再维护状态清单。VAAPI 与 Vulkan 是同级候选，需以同口径证据完成选型。

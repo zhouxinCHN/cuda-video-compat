@@ -3,7 +3,7 @@
 > 版本：v1.3
 > 文档日期：2026-11-13
 > 版本说明：v1.3 增加 `h264_nvdec` 参数集合成、显式失败和双后端宿主 32/32 结果；v1.2 标注后端同级及修复前基线。
-> 状态：**已在 AMD 验证机跑通**（RX 7900 XTX / RADV，VCN < 5）。四路码流（9/13/30/30 帧）在 Vulkan 与 VAAPI 两个后端均逐帧逐平面位精确；FFmpeg 宿主双后端矩阵 32/32，Vulkan `h264_nvdec` 通过从 CUVID 字段合成 SPS/PPS 接入，零拷贝需额外 surface。
+> 当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文只维护 Vulkan 实现、接缝、历史根因与移植指南，不维护阶段状态副本。
 > 职责：本文是 Vulkan 后端的实现、接缝、根因、验证与移植指南的唯一权威文档。能力评估与编码风险见 [Vulkan Video 方案评估](Vulkan_Video方案评估.md)；内存/同步语义见[内存与同步模型](内存与同步模型.md)；宿主结果见 [FFmpeg 宿主双后端基线](../evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
 > 环境注意：验证脚本统一显式设置 `RADV_PERFTEST=video_decode`。已有探测显示部分 Mesa 版本默认暴露视频队列族，但尚未做同版本 A/B 对照；在复测前保留显式设置作为保守做法。
 
@@ -69,14 +69,14 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 1. **双队列**：decode 队列族无 TRANSFER，copy 必须在 transfer 队列族；图像/缓冲 `CONCURRENT` 共享 + sync2 semaphore 桥接。
 2. **`pSetupReferenceSlot` 每帧非 NULL**（含 B 帧，用临时 DPB slot，解码后回收）。
 3. **DPB 分离**：DPB 图只带 `VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR`，不混 DST（RADV `radv_video.c`）。
-4. **Annex-B + start code**：h264_cuvid 传入裸 NAL，需要补 `00 00 00 01`；h264_nvdec 的 `pBitstreamData` 已由 FFmpeg 组装为 Annex-B，不能再重复补。两条路径都要求当前 P0 单 slice，多 slice 显式拒绝。
+4. **Annex-B + start code**：h264_cuvid 传入裸 NAL，需要补 `00 00 00 01`；h264_nvdec 的 `pBitstreamData` 已由 FFmpeg 组装为 Annex-B，不能再重复补。多 slice access unit 必须完整上传并提交全部 slice offset，不能只解第一片。
 5. **导出链路**：`vkCmdCopyImageToBuffer`（barrier 转 `TRANSFER_SRC_OPTIMAL`，逐平面 Y/UV）→ `vkGetMemoryFdKHR(OPAQUE_FD)` → HIP import。
 6. **SPS/PPS → Std 转换**：`fill_sps_std` / `fill_pps_std`（含 scaling list 8x8 顺序 `{0,3,1,4,2,5}`、designated-initializer 字段序、`aspect_ratio_idc` cast）。
 7. **主机同步**：`vkWaitForFences(copyFence)` 后再导出/HIP 读；异步 sync_file 桥接属并行项，不阻塞。
 
 ### 3.4 逐帧 slice 解析
 
-`decode()` 收到的 `CUVIDPICPARAMS.pBitstreamData` 是单 slice NAL（FFmpeg nvdec 每次送一个 slice）。用 FFmpeg `ff_h2645_packet_split` 包住它 → 取 slice NAL → `parse_slice_header`（自写，P0 版移植）→ `ff_h264_init_poc` 算 POC → 填 `StdVideoDecodeH264PictureInfo`。
+`decode()` 收到的 `CUVIDPICPARAMS.pBitstreamData` 是一个 access unit，可包含一个或多个 slice。用 FFmpeg `ff_h2645_packet_split` 切分并解析 slice header → `parse_slice_header`（自写，P0 版移植）→ `ff_h264_init_poc` 算 POC → 填 `StdVideoDecodeH264PictureInfo`，同时按 `nNumSlices` / `pSliceDataOffsets` 提交完整 slice 集合。
 
 `CUVIDPICPARAMS` 里 SPS/PPS 派生字段（`log2_max_frame_num_minus4` 等）这里不依赖——两条来源最终都会重新 parse 成 `SPS*`/`PPS*`。原始 cache 保留完整参数集；合成路径只有 CUVID 可见字段。
 
@@ -99,21 +99,13 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 2. SPS/PPS ID 固定 0；
 3. 非默认缩放矩阵无法可靠还原，直接返回不支持；
 4. crop、VUI、profile constraint、精确 level 不可恢复；
-5. 单 slice；多 slice 当前返回不支持，不能只解第一片；
-6. 序列变化后不会重建 session，`reconfigure` 仍是 stub。
+5. 序列变化后不会重建 session，`reconfigure` 仍是 stub。
 
-这些限制写成代码中的显式失败，不允许静默输出错误帧。P0 四路码流已通过，更复杂的码流需扩展 ABI 旁路或宿主接口。
+这些参数集限制必须显式失败，不允许静默输出错误帧；多 slice access unit 则按完整码流和全部 slice offset 提交。当前已验证场景与剩余边界见[当前能力矩阵](../当前能力矩阵.md)。
 
-## 4. 明确不在本次交付范围
+## 4. 交付范围与实现边界
 
-| # | 项 | 说明 |
-|---|---|---|
-| 1 | `cuvidReconfigureDecoder` | 当前 stub（与 VAAPI 后端一致），Vulkan 需销毁重建 session，未接 |
-| 2 | 异步同步（sync_file 桥接） | 首期主机同步够用；异步桥接需 ROCm 协同，不阻塞 |
-| 3 | 多流 / seek / 动态分辨率 | 8 路并发与 CUVID 宿主重建已覆盖；同线程交错多 decoder 仍需按 decoder 键控 |
-| 4 | HEVC/VP9/AV1 | 本次只有 H264（对齐 P0 范围）；Std 转换与 slice 解析按 codec 扩展 |
-| 5 | transfer-only 队列族导出 | 现走 compute 队列族；SDMA 路径的多平面 pitch 另有上游疑点 |
-| 6 | 多 slice / crop / VUI / POC type 1 / 非默认缩放矩阵 | 当前显式不支持；P0 四路单 slice 已通过 |
+当前交付范围、已验证场景和未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文只补充 Vulkan 特有的实现约束：参数集合成的信息保真边界见 §3.6，同线程多 decoder 限制见 §3.1，transfer-only/SDMA 路径的多平面 pitch 疑点见 §8.4。
 
 ## 5. 接缝实现
 

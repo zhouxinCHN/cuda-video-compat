@@ -179,7 +179,7 @@ flowchart LR
 **结论**：
 - HIPIFY 负责"用户自己写的 CUDA kernel"的源码翻译；NVIDIA 的库（NVDEC/NPP、CUDA Driver API 等）靠自研 shim 库承接；NVENC 不在当前 P0 范围。
 - HIPIFY 是**补充工具，不是替代方案**：它不能替代视频解码/图像处理兼容层，也不能处理二进制或动态加载的库。
-- 当前 P0 交付主线是 CUVID shim→VAAPI + NPP shim→HIP；HIPIFY 不属于 P0 交付组件，客户自有 kernel 的翻译需求需另行评估（人工改写、数值验证、性能调优）。
+- CUVID/NPP shim 与两个候选解码后端的当前验证状态见[当前能力矩阵](../当前能力矩阵.md)。HIPIFY 不属于 P0 独立交付组件，客户自有 kernel 的翻译需求需另行评估（人工改写、数值验证、性能调优）。
 
 ---
 

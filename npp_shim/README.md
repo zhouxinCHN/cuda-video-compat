@@ -1,4 +1,4 @@
-# npp_shim — Stage A NPP compatibility libraries
+# npp_shim — NPP compatibility libraries
 
 This directory implements the first NPP compatibility increment for the three
 functions used by FFmpeg `scale_npp`:
@@ -14,31 +14,14 @@ return an explicit error.
 
 ## Status
 
-- HIP kernels and the five required library SONAMEs are present.
-- Built successfully against real CUDA/NPP 12.0.1.104 headers after splitting the
-  NPP ABI host layer from HIP code (CUDA and HIP vector types conflict).
-  **12.0.1.104 is the final build header baseline; no 11.5 header rebuild is
-  required.** NPP 11.5.1.107 remains the runtime/ABI and numerical reference.
-- A separate FFmpeg 7.1 nonfree build links `libnppig.so.11` / `libnppicc.so.11`
-  from this directory and exposes `scale_npp`.
-- P2P3 and P3P2 joint chains are byte-identical to software conversion on both
-  VAAPI and Vulkan decode backends.
-- **NPP 11.5.1.107 golden comparison passes**: 32/32 manifest entries and
-  2,490,624 bytes are byte-identical. The implementation reproduces NPP's
-  absolute-coordinate/ROI semantics, float32 rounding, and its non-Catmull
-  fast-cubic four-tap weights.
-- **FFmpeg treats `libnpp` as nonfree**: `--enable-libnpp` requires
-  `--enable-nonfree` and the result is marked unredistributable. The current
-  integration is for internal validation only.
-- `libnppc` implements the full core API from CUDA/NPP 12.0.1.104:
-  `nppGetLibVersion`, `nppGetGpuNumSMs`, `nppGetMaxThreadsPerBlock`,
-  `nppGetMaxThreadsPerSM`, `nppGetGpuDeviceProperties`, `nppGetGpuName`,
-  `nppGetStream`, `nppSetStream`, `nppGetStreamContext`, `nppGetStreamNumSMs`,
-  `nppGetStreamMaxThreadsPerSM`. Device fields come from
-  `hipGetDeviceProperties`; `nppGetLibVersion` reports `{11,5,1}`, the value
-  the real NPP 11.5.1.107 library returns, even though the shim is built with
-  12.0.1.104 headers.
-- No NVIDIA NPP headers or binaries are stored in this repository.
+Current implementation, validation coverage and open items are maintained only in
+the [current capability matrix](../docs/当前能力矩阵.md). This README covers
+build and usage; archived results live under [evidence](../docs/evidence/README.md).
+
+The final build-header baseline is CUDA/NPP 12.0.1.104. NPP 11.5.1.107 remains
+the runtime/ABI and numerical reference. No NVIDIA NPP headers or binaries are
+stored in this repository. FFmpeg classifies `libnpp` as nonfree, so an NPP-enabled
+FFmpeg is customer-built and is not distributed with the driver.
 
 ## Build
 
@@ -69,43 +52,20 @@ The shared probe `tests/npp/npp_stage_a_probe.cpp` runs unchanged on NVIDIA NPP
 and on these shims. See [tests/npp/README.md](../tests/npp/README.md) for the
 golden/candidate workflow.
 
-Stage A acceptance status:
+Acceptance status and remaining numerical work are tracked in the
+[current capability matrix](../docs/当前能力矩阵.md).
 
-1. ✅ NVIDIA 11.5.1.107 reference outputs for all probe cases;
-2. ✅ byte-identical AMD shim outputs: 32/32 entries, 2,490,624 bytes;
-3. ✅ FFmpeg `scale_npp` with `interp_algo=nn/linear/cubic`; default equals
-   explicit cubic;
-4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI/Vulkan;
-5. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild;
-6. ✅ delivery boundary: the customer builds the NPP-enabled FFmpeg; the
-   vendor ships chip plus driver and does not bundle this nonfree build;
-7. ✅ `libnppc` core API probed on the shim (version, device limits, name,
-   stream and stream context);
-8. ✅ FFmpeg `scale_npp` end-to-end matrix: 40/40 cases, 26,307,120 bytes;
-   NVIDIA real NPP 11.5.1.107 and the AMD shim have identical per-case SHA256;
-9. ⏳ Stage B: Lanczos matches 181,247/181,248 probe bytes, integer-ratio
-   FFmpeg cases match; non-integer FFmpeg cases and SUPER remain open. cubic2p
-   is gated off to mirror NPP 11.5's missing runtime kernel.
+## Implementation constraints
 
-## Known limitations
-
-- Resize is byte-identical to the NPP 11.5.1.107 golden for the implemented
-  Stage A cases, but the scope is limited to NN/linear/cubic and the documented
-  probe geometries; do not generalize it to all NPP modes.
+- The implemented API scope is limited to the functions listed above; do not
+  infer full NPP compatibility from these entry points.
 - Stage A uses host synchronization for correctness. `nppSetStream` records the
   requested stream and flushes the device on a switch, but kernels still run on
   the default stream; a non-NULL NPP stream is therefore ordering-safe, not
   concurrent.
-- Only 8-bit C1 resize and NV12↔YUV420P 4:2:0 conversion.
-- Stage B `LANCZOS` follows NPP's sampled-kernel table (0.01 distance grid +
-  linear interpolation, six normalized taps). Probe output matches the NVIDIA
-  11.5 golden on 181,247 of 181,248 bytes (one pixel differs by 1); FFmpeg
-  end-to-end matches on integer scale ratios and still differs on 214x118 and
-  100x100 pending a raw-level diff.
-- `CUBIC2P_BSPLINE/CATMULLROM/B05C03` kernels exist, but NVIDIA NPP 11.5.1.107
-  has no runtime kernel and returns `NPP_INTERPOLATION_ERROR`. The shim mirrors
-  that by default; set `NPP_SHIM_ENABLE_CUBIC2P=1` to enable them (no golden).
-- `NPPI_INTER_SUPER` is not implemented and returns an explicit error. NPP's
-  supersampling is a 2x2 box at exactly 0.5x, but the non-integer downscale
-  rule is not yet reverse-engineered.
-- Stage C (all remaining NPP interpolation flags) is not implemented.
+- Only 8-bit C1 resize and NV12↔YUV420P 4:2:0 conversion are implemented.
+- Lanczos uses a sampled kernel table (0.01 distance grid + linear interpolation
+  and six normalized taps). `CUBIC2P_*` is gated off by default to mirror the
+  NPP 11.5 runtime; `NPP_SHIM_ENABLE_CUBIC2P=1` enables the experimental kernels.
+- Unsupported modes return explicit errors. Numerical coverage and remaining
+  modes are tracked in the [current capability matrix](../docs/当前能力矩阵.md).

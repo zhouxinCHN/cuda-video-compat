@@ -1,10 +1,10 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
 > 版本：v4.16
-> 文档日期：2026-11-16
-> 技术事实截止：2026-11-16
-> 职责：本文是**技术实现、验证证据与风险边界的唯一权威文档**，负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、实现缺口、防御性风险、追溯、实验证据和历史版本。
-> 不负责：路线选型、成本、人力、排期、Gate 和法务决策见[总体方案](CUDA兼容层总体方案.md)；字段级翻译见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md)；内存/同步契约见[内存与同步模型](内存与同步模型.md)；复现步骤见[验证手册](../verification/验证手册.md)。
+> 文档日期：2026-11-17
+> 技术事实截止：2026-11-17
+> 职责：本文负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、防御性风险、历史实验和源码索引。
+> 不负责：当前实现、验证覆盖与未闭环项见[当前能力矩阵](../当前能力矩阵.md)；路线选型、成本、人力、排期、Gate 和法务决策见[总体方案](CUDA兼容层总体方案.md)；字段级翻译见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md)；内存/同步契约见[内存与同步模型](内存与同步模型.md)；复现步骤见[验证手册](../verification/验证手册.md)。
 > 读者：架构评审、工程实施、测试与风险决策。
 
 > **后端决策状态（2026-11-13）**：VAAPI 与 Vulkan Video 尚未经领导决策，二者是同级候选。本文中的“VAAPI 默认/Tier 2”技术现状不等于路线批准；验证、缺陷修复与验收必须对两者使用同一口径，Vulkan 失败不得自动 SKIP。
@@ -19,7 +19,7 @@
 |---|---|
 | **AMD-PoC** | 已在文档所列 AMD 硬件和软件环境完成对应概念验证，仅证明已测项目与平台 |
 | **NVIDIA 参考机已验证** | 已在 NVIDIA 参考环境生成并固化参考结果，用于数值/行为对照 |
-| **目标平台已验证** | 已在目标厂商平台按交付场景验证；当前尚无此类结论 |
+| **目标平台已验证** | 已在目标厂商平台按交付场景验证 |
 | **设计假设** | 有架构依据或局部实验支撑，但关键端到端链路尚未实现 |
 | **待验证** | 尚无充分证据，必须作为后续阶段通过条件或待办跟踪 |
 
@@ -27,19 +27,7 @@
 
 ### 0.2 结论摘要
 
-| 关键结论 | 证据等级 | 含义 |
-|---|---|---|
-| VAAPI 可作为 NVDEC 兼容后端候选 | AMD-PoC | 选定格式及 AMD 测试支持主路线，不代表全部设备和码流能力已覆盖 |
-| DMA-BUF 句柄/资源链路可打通 | AMD-PoC | 具备零拷贝设计基础；只把解码侧纳入当前交付 |
-| 线性 surface 可作为共享资源优先路径 | AMD-PoC | 当前平台内容正确且未见明显性能回退，目标平台须复测 |
-| 主机同步可作为首期基线 | AMD-PoC | 顺序与资源管理测试通过；真实并发流水线仍需验证 |
-| 真实解码→HIP 读底层数据通路 | AMD-PoC | 实验 C 已闭合；不代表 CUVID shim 或 FFmpeg 宿主已验收 |
-| DRM sync_file 跨栈异步同步 | 设计假设 | 基础原语可用，真实跨引擎 fence 传递/排序/异常未完成 |
-| CUVID shim 数据通路 | AMD-PoC | 双后端四路码流各 82/82 逐字节；`verify_kernel_read` errors=0；FFmpeg 宿主矩阵修复后 32/32 PASS，含双后端零 D2D 与严格 PTS |
-| NPP NVIDIA 参考基线 | NVIDIA 参考机已验证 | RTX 4060 / NPP 11.5.1.107 Stage A golden 32 条，重复运行稳定 |
-| NPP AMD Stage A | AMD-PoC | 32/32 条目、2,490,624 bytes 与 NVIDIA golden 逐字节一致；FFmpeg `scale_npp` 已加载，P2P3/P3P2 双后端联合链路通过；`libnppc` 核心 API 已实现并通过探针；FFmpeg 端到端 40 case 在 NVIDIA 真实 NPP 与 AMD shim 两侧 40/40 SHA256 一致；nonfree FFmpeg 由客户自行构建 |
-| Vulkan Video 后端 | AMD-PoC | 解码→拷贝→导出→HIP 读取通过，已接入 CUVID；h264_nvdec 使用合成 SPS/PPS；与 VAAPI 同级候选 |
-| 目标平台 | 待验证 | AMD 结果不能替代实际交付平台验收 |
+当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文保留技术实现、验证方法、历史实验解释与风险边界，不再维护结论状态表。
 
 ### 0.3 测试环境
 
@@ -53,52 +41,18 @@
 
 ---
 
-## 1. 当前状态：P0 闭环结果
+## 1. P0 技术范围与验收边界
 
-### 1.1 结果
+当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。2026-11-12 数据通路批次的原始范围解释见 [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md)，该历史记录不单独代表当前状态。
 
-2026-11-12 AMD 验证机，两个后端 × 四路码流，合计 164 帧（每后端 82 帧），HIP 读回与软件解码参考逐字节一致：
+### 1.1 P0 技术范围与验收边界
 
-| 码流 | 帧数 | Vulkan | VAAPI |
-|---|---:|---|---|
-| `testdata/h264/test_p_b_5.h264` | 9 | 9/9 bit-exact，errors=0 | 9/9 bit-exact |
-| `testdata/h264/test_p_b_7.h264` | 13 | 13/13 bit-exact，errors=0 | 13/13 bit-exact |
-| `testdata/h264/test_p_main.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
-| `testdata/h264/test_p_66.h264` | 30 | 30/30 bit-exact，errors=0 | 30/30 bit-exact |
-| **合计** | **82** | **82/82** | **82/82** |
-
-补充检查：
-
-- `verify_kernel_read`：两个后端全部 `errors=0`。
-- `make check`：PASS。
-- `make check_func`：PASS。
-- `make verify_cuvid_parser`：PASS。
-- `make verify_cuvid_session`：PASS。
-
-完整记录、复现命令和证据边界见 [P0 闭环验证结果](../evidence/P0闭环验证结果_2026-11-12.md)。
-
-### 1.2 这批结果证明什么
-
-- VAAPI 与 Vulkan Video 两条数据通路都能完成真实解码、显存导出/导入和 HIP 读取。
-- 四路码流在两个后端上都与软件参考逐字节一致，覆盖 I/P/B、不同 profile 和无 B 帧对照组。
-- `verify_kernel_read` 通过，说明 map 返回的 `dev_ptr` 能被 HIP kernel 直接按 pitch 寻址，并且 `hipEventSynchronize` 后再 unmap 的顺序正确。
-- libcuda 符号面、功能子集、CUVID parser 与会话创建均通过。
-
-### 1.3 这批结果不能证明什么
-
-- FFmpeg 宿主组已补测：四路 320×240 码流、两后端、四种模式 32/32 PASS；`h264_nvdec` 零 D2D 依赖 `-extra_hw_frames`。这不等于真实业务线程/队列配置已验收。
-- 尚未覆盖多流、seek/flush、动态分辨率、P010/奇数分辨率。
-- 尚未覆盖自研目标平台、1/8 路 30 分钟稳定性、真实业务性能。
-- `verify_kernel_read` 的 checksum 只证明“kernel 可寻址 + event 顺序”，不独立证明解码像素正确；像素正确性由四路码流表格证明。
-
-### 1.4 P0 技术范围与验收边界
-
-下表是实现和验证的范围基线，不代表表中所有项目已经通过；各阶段状态见 [§11.1](#111-阶段通过条件)。
+下表是实现和验证的范围基线，不代表表中所有项目已经通过；当前状态见[当前能力矩阵](../当前能力矩阵.md)，阶段通过标准见 [§11.1](#111-阶段通过条件)。
 
 | 维度 | P0 已确认范围 | 边界/验收口径 |
 |---|---|---|
 | OS/平台 | Ubuntu 24.04；GFX ISA，支持 AMD 私有 HSA API | AMD 验证机为 RX 7900 XTX；其他组合不自动视为受支持 |
-| 验证宿主 | 官方源码自编译 FFmpeg 7.1 | 覆盖 `h264_cuvid` decoder 与 `nvdec` hwaccel；当前 320×240 四路矩阵通过；用户真实应用和业务场景移至 P1 |
+| 验证宿主 | 官方源码自编译 FFmpeg 7.1 | 覆盖 `h264_cuvid` decoder 与 `nvdec` hwaccel；四路 320×240 码流用于快速回归，真实应用和业务场景另行验收 |
 | 解码格式 | H.264、4:2:0、8-bit、NV12 | 不扩展至其他 codec、位深或色度格式 |
 | 码流能力 | I/P/B、DPB、crop、seek/flush、动态分辨率、长期参考 | 场/MBAFF 遇到时明确返回不支持；不静默输出错误帧 |
 | CUVID API | 22 个动态加载符号形态；FFmpeg 直接使用的 9 个功能接口 | 清单见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
@@ -110,14 +64,14 @@
 | 稳定性 | 1 路和 8 路分别运行 30 分钟 | 无崩溃、死锁、非法访问或持续资源泄漏 |
 | 性能 | 记录吞吐、p50/p95/p99 延迟、CPU/显存/fd | **P0 只记录不设通过阈值，不得宣称性能达标** |
 
-### 1.5 当前非目标
+### 1.2 当前非目标
 
 - NVENC、视频编码及 HIP→VAAPI 编码链路。
 - HEVC、AV1、VP9、MPEG-2、P010、10/12-bit、4:2:2、4:4:4。
 - 完整 CUDA 二进制 drop-in、完整 driver/runtime、完整 CUVID 或完整 NPP。
 - 任意用户应用、任意 CUDA kernel 的 HIPIFY 自动翻译，以及用户应用的 NPP 调用覆盖。
 - 场/MBAFF、DRM 异步 fence、多 GPU 和跨进程 DMA-BUF 传递。
-- Vulkan Video 与 VAAPI 为同级候选，尚未经书面选型；其底层解码和 FFmpeg 宿主 P0 矩阵已验证，但真实业务、复杂场景和目标平台仍未验收，不能视为已批准的 P0 交付承诺。
+- Vulkan Video 与 VAAPI 为同级候选，尚未经书面选型；其具体实现、验证覆盖与目标平台边界见[当前能力矩阵](../当前能力矩阵.md)，不得视为已批准的正式双后端交付承诺。
 - 以 P0 结果替代生产性能、长稳、安全、运维和实际交付平台验收。
 
 ---
@@ -155,16 +109,18 @@
 
 分层的意义是**共享逻辑只写一遍，后端只实现差异**。parser/DPB、CUVID 门面、帧映射、同步契约、构建和诊断属于共享层；VAAPI、Vulkan、Mesa 只负责“解码会话 + 输出布局 + 导出方式”。两条现有路径最终都返回 `dev_ptr + pitch` 给 HIP kernel/NPP，并在 unmap 时执行 `hipDestroyExternalMemory + close(fd)`；VAAPI 直接导出 LINEAR surface，Vulkan 则先经 GPU 内 tiled→linear 拷贝再导出线性 buffer。
 
-| 组件 | 职责 | 关键源码 | 当前状态 |
-|---|---|---|---|
-| `libcuda.so.1` | 设备/上下文/内存/流/事件映射到 HIP；launch/module/JIT/texture/GL stub | `cuda_shim/src/libcuda.cpp` | 82 符号导出；47 项功能子集 PASS；完整 ABI 未验收 |
-| `libnvcuvid.so.1` | CUVID 符号面、句柄、解码、map/unmap、parser | `cuda_shim/src/libnvcuvid.cpp` | 21 必需符号 + caps；P0 四路双后端宿主矩阵 32/32；多 slice、crop、seek 双后端 12/12 通过 |
-| `DecoderBackend` | 后端抽象与运行时选择 | `cuda_shim/src/decoder_backend.h`、`backend_dispatch.cpp` | 已落地；`CUVID_SHIM_BACKEND=vaapi / vk` |
-| `VaapiH264Decoder` | VAAPI 解码、LINEAR surface | `cuda_shim/src/vaapi_h264_decoder.cpp` | H.264/420/8bit/NV12 可用；profile 映射与部分语义待补 |
-| `VulkanH264Decoder` | Vulkan Video 解码、拷贝、导出 | `cuda_shim/src/vulkan_h264_decoder.cpp` | H.264 数据通路可用；多流/reconfigure 未覆盖 |
-| `CuvidParser` | SPS/PPS/slice 解析、DPB、显示序 | `cuda_shim/src/cuvid_parser.cpp` | I/P/B 四路码流通过；多 slice 组装、序列变化检测已实现；多流/长期参考待补 |
-| `HipFrameMapping` | VAAPI/VK 导出 fd → HIP 导入、布局门禁 | `cuda_shim/src/hip_frame_mapper.cpp` | VAAPI/VK 路径均通过；fd 所有权已处理 |
-| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | Stage A HIP 实现和 5 个 SONAME 库 | ✅ 32/32 NVIDIA golden 逐字节；FFmpeg `scale_npp` 与双后端颜色联合链路通过；`libnppc` 核心 API 完整；Stage B Lanczos 181,247/181,248 字节一致，CUBIC2P 在 11.5 运行库不存在（shim 默认对齐），SUPER 未实现 |
+组件的实现与验证状态统一见[当前能力矩阵](../当前能力矩阵.md)。下表只保留职责和源码导航。
+
+| 组件 | 职责 | 关键源码 |
+|---|---|---|
+| `libcuda.so.1` | 设备/上下文/内存/流/事件映射到 HIP；launch/module/JIT/texture/GL stub | `cuda_shim/src/libcuda.cpp` |
+| `libnvcuvid.so.1` | CUVID 符号面、句柄、解码、map/unmap、parser | `cuda_shim/src/libnvcuvid.cpp` |
+| `DecoderBackend` | 后端抽象与运行时选择 | `cuda_shim/src/decoder_backend.h`、`backend_dispatch.cpp` |
+| `VaapiH264Decoder` | VAAPI 解码、LINEAR surface | `cuda_shim/src/vaapi_h264_decoder.cpp` |
+| `VulkanH264Decoder` | Vulkan Video 解码、拷贝、导出 | `cuda_shim/src/vulkan_h264_decoder.cpp` |
+| `CuvidParser` | SPS/PPS/slice 解析、DPB、显示序 | `cuda_shim/src/cuvid_parser.cpp` |
+| `HipFrameMapping` | VAAPI/VK 导出 fd → HIP 导入、布局门禁 | `cuda_shim/src/hip_frame_mapper.cpp` |
+| `libnpp*.so.11` | 3 个 NPP 函数 + nppc | `npp_shim/src/`、5 个 SONAME 库 |
 
 ### 2.2 零拷贝可行性实验
 
@@ -252,7 +208,7 @@
 
 `HipFrameMapping::range_valid` 检查 offset/pitch/rows/row_bytes/object_size，防止整数溢出和越界。只有 Y/UV 能由同一 HIP 映射基址及合法 pitch/offset 表达时，才声明 mapped-frame 零拷贝；其他布局显式降级，不得混报。
 
-当前 P0 四路码流上，两后端 `h264_nvdec` 零拷贝均为 D2D=0 且逐字节一致；宿主必须为 `unsafe_output` 分配额外 surface（测试使用 `-extra_hw_frames 16`，shim 上限 64），否则 FFmpeg frame pool 会报 `No decoder surfaces left`。`h264_cuvid` 的 `cuMemcpy2DAsync` 是 FFmpeg 自身行为，必须单独记录。跨进程 DMA-BUF、多 GPU 不在 P0；生产实现必须运行时查询 pitch/offset/modifier，不能写死 256 对齐。
+`h264_nvdec` 的 `unsafe_output` 需要宿主分配额外 surface（现有测试使用 `-extra_hw_frames 16`，shim 上限 64），否则 FFmpeg frame pool 可能报 `No decoder surfaces left`。`h264_cuvid` 的 `cuMemcpy2DAsync` 是 FFmpeg 自身行为，必须单独记录。当前零拷贝证据及计数口径见[当前能力矩阵](../当前能力矩阵.md)。跨进程 DMA-BUF、多 GPU 不在 P0；生产实现必须运行时查询 pitch/offset/modifier，不能写死 256 对齐。
 
 ### 2.7 同步协议 S1–S8
 
@@ -341,13 +297,9 @@ VAAPI/Vulkan fence → external fence fd / sync_file
 | `libnvcuvid.so.1` | FFmpeg `dlopen + dlsym` | 固定 SONAME；22 个符号形态；`cuvidGetDecoderCaps` 可选 |
 | `libnpp*.so.11` | 编译期链接 | SONAME 必须是 `libnpp<子库>.so.11`；导出符号名与 NVIDIA 一致 |
 
-### 3.3 符号面结果与错误语义
+### 3.3 符号面与错误语义
 
-| .so | 必需符号数 | 结果 |
-|---|---|---|
-| `libcuda.so.1` | 82（+20 可选） | 全部导出正常；`verify_symbols` PASS |
-| `libnvcuvid.so.1` | 22 | 21 必需符号 + `cuvidGetDecoderCaps` 可解析；`verify_cuvid_symbols` PASS |
-| `libnvidia-encode.so.1` | 2 | 形态明确；不在 P0 |
+当前符号验证结果见[当前能力矩阵](../当前能力矩阵.md)。符号导出、功能实现与 ABI 是三个不同验收层次。
 
 **符号导出 ≠ 功能完成**。CUDA 版本号、Compute Capability、错误码需要虚拟化。返回类型统一 `CUresult`（`CUDA_SUCCESS=0`）；不支持的能力必须返回 `CUDA_ERROR_NOT_SUPPORTED`（**801，不是 201**），不得返回伪成功。`VAStatus`/`hipError_t` 到 `CUresult` 的映射集中在 `cuda_shim/include/cuda_shim_types.h` 和 `hip_frame_mapper.cpp`，实现时使用显式 switch，不依赖数值巧合。
 
@@ -390,17 +342,19 @@ VAAPI/Vulkan fence → external fence fd / sync_file
 2. **句柄与状态**：`DecoderState` 持有后端、mutex、映射表、状态表；parser 句柄持有 `CuvidParser`。
 3. **契约转换**：把 `CUVIDDECODECREATEINFO`/`CUVIDPICPARAMS`/`CUVIDPROCPARAMS` 转成后端调用，把 `dev_ptr + pitch` 返回给宿主。
 
-| API | 行为 | 当前状态 |
-|---|---|---|
-| `cuvidGetDecoderCaps` | H.264/420/8bit caps；其他返回不支持 | 静态 caps，未按目标平台 `vaQueryConfigAttributes` 动态探测 |
-| `cuvidCreateDecoder` | 建 `DecoderState`，调 `backend->initialize` | 通过 |
-| `cuvidDecodePicture` | 检查 `CurrPicIdx`、已 map 状态，调 `backend->decode` | 通过 |
-| `cuvidGetDecodeStatus` | 返回内部状态表 | 当前不主动 `vaSyncSurface`；与映射表文档描述有差异，列入缺口 |
-| `cuvidReconfigureDecoder` | 返回 `NOT_SUPPORTED` | 两个后端均为 stub |
-| `cuvidMapVideoFrame64` | 检查场参数、调 `backend->map_frame`、布局门禁 | 通过 |
-| `cuvidUnmapVideoFrame64` | 删除 mapping，析构时释放导入对象和 fd | 通过 |
-| source 层 7 个符号 | 返回 `NOT_SUPPORTED` | 加载表要求存在，功能不承诺 |
-| `cuvidCtxLock*` | 宿主递归 mutex | 通过 |
+各 API 的实现与验证边界统一见[当前能力矩阵](../当前能力矩阵.md)。下表只说明门面职责。
+
+| API | 门面行为 |
+|---|---|
+| `cuvidGetDecoderCaps` | 返回 codec/chroma/bitdepth 能力信息 |
+| `cuvidCreateDecoder` | 建 `DecoderState`，调 `backend->initialize` |
+| `cuvidDecodePicture` | 检查 `CurrPicIdx`、已 map 状态，调 `backend->decode` |
+| `cuvidGetDecodeStatus` | 返回解码状态信息 |
+| `cuvidReconfigureDecoder` | 处理重配置请求 |
+| `cuvidMapVideoFrame64` | 检查场参数、调 `backend->map_frame`、布局门禁 |
+| `cuvidUnmapVideoFrame64` | 删除 mapping，析构时释放导入对象和 fd |
+| source 层 7 个符号 | 加载表要求存在，功能不承诺 |
+| `cuvidCtxLock*` | 宿主递归 mutex |
 
 ### 3.6 句柄、map/unmap 生命周期与线程配置
 
@@ -494,14 +448,13 @@ Annex-B 数据包
 7. **IDR 要 flush 显示队列并清 DPB**：否则全 IDR 流会攒到 EOS，surface 被反复覆盖。
 8. **`pfnDisplayPicture` 必须按显示顺序**：按解码顺序回调会让 B 帧序列错乱。
 
-**边界结论**：I/P/B + DPB + 双参考列表 + 显示序重排已证明正确；多 slice、crop、seek/flush 已通过双后端 12/12 场景矩阵；长期参考（MMCO 5）和场/MBAFF 仍需独立实现验证。
+**边界结论**：本实验用于解释 I/P/B、DPB、双参考列表和显示序的实现约束。当前已验证场景及长期参考等缺口统一见[当前能力矩阵](../当前能力矩阵.md)。
 
-### 4.7 当前实现边界
+### 4.7 实现边界
 
-- 只实现 H.264；HEVC/VP9/AV1 的 CUVID 结构体映射表保留在[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md)，但未实现。
-- 场/MBAFF 明确返回不支持。
-- 多流、动态分辨率、长期参考未验收；seek/flush、crop、多 slice 已完成。
-- `CuvidParser` 当前是单序列状态；多流需要按 decoder/stream 键控。
+- 设计范围为 H.264；HEVC/VP9/AV1 的 CUVID 结构体映射表保留在[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md)，不属于当前实现范围。
+- 场/MBAFF 路径必须明确返回不支持。
+- parser 的序列、多流和长期参考等当前验证边界统一见[当前能力矩阵](../当前能力矩阵.md)。
 
 ---
 
@@ -607,18 +560,18 @@ cuvidMapVideoFrame64
 存在两条来源：
 
 - **`h264_cuvid`**：`CuvidParser` 看到 SPS/PPS 时 stash 原始 `nal.raw_data`（保留 EPB），两者就绪后写入 `VkSequenceCache`；后端优先使用这份原始参数集。
-- **`h264_nvdec`**：FFmpeg 自己解析 H.264 且只调用 `cuvidDecodePicture`，shim parser 完全收不到 SPS/PPS。后端从 `CUVIDH264PICPARAMS` 重建一份最小 Annex-B SPS/PPS（`h264_direct_params.cpp`），保存在 decoder 实例内，避免进程级单槽 cache 串流。CUVID ABI 不含 profile constraint、精确 level、VUI、crop、SPS/PPS ID 和 POC type 1 cycle；当前按可用字段推断，不支持的组合显式失败。
+- **`h264_nvdec`**：FFmpeg 自己解析 H.264 且只调用 `cuvidDecodePicture`，shim parser 完全收不到 SPS/PPS。后端从 `CUVIDH264PICPARAMS` 重建一份最小 Annex-B SPS/PPS（`h264_direct_params.cpp`），保存在 decoder 实例内，避免不同 decoder 共用参数集。CUVID ABI 不含 profile constraint、精确 level、VUI、crop、SPS/PPS ID 和 POC type 1 cycle；当前按可用字段推断，不支持的组合显式失败。
 
 两条来源最终都用 `ff_h2645_packet_split` 重新解析，填 `StdVideoH264SequenceParameterSet` / `PictureParameterSet`。`fill_sps_std` / `fill_pps_std` 的约束：scaling list 8x8 顺序 `{0,3,1,4,2,5}`；注意 designated-initializer 字段序和 `aspect_ratio_idc` cast。
 
-当前合成路径的边界：
+合成参数集本身的边界：
 
-- 只支持 4:2:0/8-bit、progressive、POC type 0/2、默认缩放矩阵、单 slice；
-- 假定 SPS/PPS ID 为 0；profile 根据 CABAC/8x8/缩放矩阵推断，level 按宏块规模选择；
-- 不携带 VUI/crop，因此 crop、色彩元数据和 POC type 1 等场景不能据此声明兼容；
+- 仅表达 4:2:0/8-bit、progressive、POC type 0/2 和默认缩放矩阵；假定 SPS/PPS ID 为 0；
+- profile 根据 CABAC/8x8/缩放矩阵推断，level 按宏块规模选择；
+- 合成 SPS 不携带 VUI/crop，色彩元数据和 POC type 1 等不能据此声明兼容；target-height 输出重排是另一层处理，不能误认为原始参数集已保真；
 - 若第一个参数集之后发生变化，当前不会重建 session。
 
-`h264_cuvid` 路径仍使用单槽进程 cache；多流需按 `CUvideodecoder` 键控（P1）。`h264_nvdec` 合成参数集属于 decoder 实例，不受该单槽限制。
+`h264_cuvid` 的 `VkSequenceCache` 为每线程单槽；同一线程交错多个 decoder 仍需按 decoder 键控。`h264_nvdec` 合成参数集属于 decoder 实例，不受该 cache 限制。具体场景验证状态见[当前能力矩阵](../当前能力矩阵.md)。
 
 ### 5.7 图像、DPB 与每帧解码
 
@@ -653,10 +606,9 @@ cuvidMapVideoFrame64
 
 `cuda_shim/` 的 `libnvcuvid.so.1` 新增 Vulkan Video 解码后端，与 VAAPI 后端并列于 `DecoderBackend` 接口下，用 `CUVID_SHIM_BACKEND=vk` 运行时切换（默认 VAAPI）。CUVID 符号面不变，环境变量只切内部后端。
 
-- SPS/PPS 由 `CuvidParser` 解析后经进程级 `VkSequenceCache`（前置 start code）交给后端；后端在 SPS/PPS 就绪后懒建 Vulkan session。
-- 2026-11-12 P0 双后端四路码流各 82/82 逐字节一致。
+- SPS/PPS 由 `CuvidParser` 解析后经每线程 `VkSequenceCache`（前置 start code）交给后端；后端在 SPS/PPS 就绪后懒建 Vulkan session。
 - 验收宿主仍是 `h264_cuvid` / `h264_nvdec`，不是 `h264_vulkan`。`h264_vulkan` 是 FFmpeg 原生 VK 解码器，绕过 shim，只能作环境冒烟或语义参考。
-- 当前 320×240 P0 四路矩阵中，`h264_cuvid` 与 `h264_nvdec` 在两后端均通过；`h264_nvdec` 的 Vulkan 会话依赖合成参数集，限制见 [§5.6](#56-spspps-交接与-std-结构)。这不等于真实业务线程/队列已验收。
+- `h264_nvdec` 的 Vulkan 会话依赖合成参数集，限制见 [§5.6](#56-spspps-交接与-std-结构)。当前宿主覆盖与业务边界见[当前能力矩阵](../当前能力矩阵.md)。
 
 ### 5.10 B 帧挂死根因与修复
 
@@ -692,21 +644,9 @@ cuvidMapVideoFrame64
 3. **`verify_kernel_read` 的 `OK/Ysum/UVsum` 不校验画面**：只证明 GPU kernel 与 CPU 读到同一块内存；画面正确性必须 dump NV12 后与软解参考逐帧比。
 4. 已排除的假设：H.264 语义层、DPB 图未写、`used_for_reference_flags` 差异、`RADV_DEBUG=videoarraypath`、`CUVID_SHIM_EXP=dpbsrc`、SDMA 拷贝路径——均与 B 帧挂死无关。
 
-### 5.13 当前边界与实现顺序
+### 5.13 当前边界
 
-Vulkan 路径的 `h264_nvdec` 零拷贝已在四路 P0 码流上通过（需额外 surface）；多 slice、多流/seek/flush、crop、动态分辨率及 HEVC/VP9/AV1 均未在此后端验收；`cuvidReconfigureDecoder` 仍为 stub。两个后端继续使用同一验收口径，路线决策见[总体方案](CUDA兼容层总体方案.md)。
-
-后续实现/补证顺序：
-
-1. **能力探测**：instance/device、decode/transfer 队列族、`VK_KHR_video_*`、NV12/OPTIMAL、external memory fd；用 `verify_vulkan_video_full`。
-2. **建会话**：`VkVideoSessionKHR`、内存需求/绑定/所有权、session parameters；先不接宿主，用 `verify_cuvid_session` 冒烟。
-3. **SPS/PPS 交接**：`CuvidParser` stash `raw_data` → `VkSequenceCache` → `StdVideoH264*`；验证 SPS/PPS 解析不漂移。
-4. **图像/DPB**：output/DPB 分离、layout 跟踪、DPB 槽位升序、reference slots。
-5. **每帧解码**：slice/POC、`vkCmdDecodeVideoKHR`、decode queue、状态 query/fence。
-6. **拷贝/导出**：transfer queue + semaphore、barrier、`vkCmdCopyImageToBuffer`（plane texel 单位）、`vkGetMemoryFdKHR`。
-7. **HIP 导入**：`map_fd`、pitch/offset 校验、`verify_kernel_read`、dump 对比。
-8. **接宿主**：`CUVID_SHIM_BACKEND=vk` 跑 `h264_cuvid`/`h264_nvdec`；补齐 reconfigure、多流 cache 键控。
-9. **平台/性能**：目标平台能力探测、转换成本量化、双后端回归。
+Vulkan 的实现范围、已验证场景和未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。路线决策见[总体方案](CUDA兼容层总体方案.md)，复现入口见[验证手册](../verification/验证手册.md)。
 
 ---
 
@@ -769,19 +709,7 @@ NPP 兼容层用 HIP kernel 逐函数重实现 NPP API，跑在 GFX 通用计算
 
 ### 6.5 当前边界
 
-- NVIDIA 参考基线已建立（RTX 4060 + NPP 11.5.1.107）；除旧的 8×8 参考外，已新增 Stage A 32 条 golden，覆盖 NN/linear/cubic、full/ROI、pitch 和 padding。
-- AMD NPP Stage A shim 已实现 NN/linear/cubic 三个 resize 模式及两种 4:2:0 平面转换；真实 CUDA/NPP 12 头文件下构建成功，独立 FFmpeg 已加载 `scale_npp`。
-- **Stage A 数值验收通过**：AMD candidate 与 NPP 11.5.1.107 golden 的 32/32 条目、2,490,624 bytes 逐字节一致，覆盖 full/ROI、pitch、padding 和三种 resize 算法。
-- FFmpeg 联合链路：P2P3/P3P2 在 VAAPI/Vulkan 两个解码后端均与软件转换逐字节一致；NN/linear/cubic 通过 `scale_npp` 执行。
-- **FFmpeg 将 libnpp 标记 nonfree**：`--enable-libnpp` 必须配 `--enable-nonfree`，该构建不可再分发。交付边界已定：我方只交付芯片和驱动，不捆绑该 FFmpeg、NPP 头文件或其他 nonfree 产物；客户自行构建并承担相应许可合规。
-- 最终构建头文件固定为 CUDA 12.0.1.104，不再要求 NPP 11.5 头文件重建；运行时 ABI/SONAME 与数值 golden 保持 NPP 11.5.1.107。
-- `libnppc` 已实现 CUDA/NPP 12.0.1.104 头文件中的全部核心 API：版本、设备 SM/线程/shared memory/名称、`nppGetStream`/`nppSetStream`、`NppStreamContext` 及 stream 设备查询；设备字段来自 `hipGetDeviceProperties`，compute capability 与 `cuda_shim` 的 `cuDeviceComputeCapability` 一致。`nppSetStream` 只记录句柄并在切换时同步设备，Stage A kernel 仍在默认 stream 上执行，因此是排序安全而非并发。
-- **FFmpeg 端到端矩阵已闭环**：40 个 case（5 尺寸 × nn/linear/cubic/default × nv12/yuv420p），NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 各重复 2 次，两侧 40/40 SHA256 一致，合计 26,307,120 bytes。矩阵使用 lavfi 输入；rawvideo 输入另由上传/下载回归测试覆盖。
-- **rawvideo + `hwupload_cuda` 缺陷已修复**：根因是 shim 把含 host 内存的 `cuMemcpy2DAsync` 直接转成 `hipMemcpyParam2DAsync`，FFmpeg 回收源帧后 HIP 拷贝仍在读取 host 缓冲，导致第 1 帧后出现确定性跨帧损坏。现在 host 参与的 2D 拷贝走同步 `hipMemcpyParam2D`，与 CUDA 对 pageable 内存“返回即可复用”的语义一致；`tests/npp/verify_hwupload_roundtrip.sh` 验证 yuv420p/nv12 各 3 次均与软件转换逐字节一致。
-- **版本串修正**：真实 NPP 11.5.1.107 的 `nppGetLibVersion()` 返回 `{11,5,1}`（`107` 是包版本），shim 已从 `{11,5,107}` 修正为 `{11,5,1}`。
-- 3 个函数必须与 NVIDIA 11.5.1.107 参考逐字节一致；ROI、step、padding、stream、错误语义需补齐。
-- resize 插值范围最终为全部 NPP interpolation flag；实施顺序是 FFmpeg 核心 cubic/NN/linear → FFmpeg 其余选项 → NPP 全部 flags。未实现模式显式失败。
-- NPP 头文件是专有许可，采用路线 A（用户自带授权头文件，发布物只含 `.so`）；当前开发机没有这些头文件/NPP 库，构建前需由使用方提供。
+NPP 各阶段、FFmpeg 矩阵、stream、上传下载和插值模式的当前验证状态统一见[当前能力矩阵](../当前能力矩阵.md)。本节不再维护第二份验收清单；实现与复现说明见 [NPP 方案](NPP兼容方案与VPE对比.md)和 [NPP 测试说明](../../tests/npp/README.md)。
 
 ---
 
@@ -1043,7 +971,7 @@ Mesa
 2. 明确安装目录、loader 路径和优先级；不得未经验证覆盖系统或 NVIDIA 库。
 3. 与 NVIDIA 库共存：分别定义“同机不同进程”和“同进程混用”是否支持；不得默认承诺同进程混用同一 CUDA 符号。
 4. 升级/回退：保留上一版本库和配置；升级前做兼容检查，升级后跑健康检查。
-5. VAAPI/Vulkan 的部署都须明确 SONAME、loader 路径及与 NVIDIA 库共存策略；发布矩阵和回退尚未形成，见 [§13.4](#134-实现缺口台账) G12。
+5. VAAPI/Vulkan 的部署都须明确 SONAME、loader 路径及与 NVIDIA 库共存策略；发布与回退的当前状态见[当前能力矩阵](../当前能力矩阵.md)。
 
 ### 10.3 诊断与敏感信息边界
 
@@ -1053,17 +981,19 @@ Mesa
 
 ## 11. 验证方法与验收设计
 
-> 本章的“通过标准”均为设计/待验证口径；只有“当前状态”或证据章节明确列出的项目才是已验证。Gate 的阶段和发布决策定义见[总体方案](CUDA兼容层总体方案.md)，具体复现命令见[验证手册](../verification/验证手册.md)。
+> 本章的“通过标准”均为设计/待验证口径；当前是否已验证只以[当前能力矩阵](../当前能力矩阵.md)为准。Gate 的阶段和发布决策定义见[总体方案](CUDA兼容层总体方案.md)，具体复现命令见[验证手册](../verification/验证手册.md)。
 
 ### 11.1 阶段通过条件
 
-| 阶段 | 必交付证据 | 通过标准 | 当前状态 |
-|---|---|---|---|
-| **第 0 步：范围与底层能力确认** | 范围/验收口径；AMD 验证机 HIP/VAAPI 共存、DMA-BUF、LINEAR NV12、实验 C/E | 范围确认；底层能力门禁通过 | ✅ 已通过，不代表 P0 整体通过 |
-| **第 1A 步：真实解码→HIP 读** | 同进程 libva 解码→LINEAR surface→DMA-BUF→HIP 读取的程序与日志 | 多帧 NV12 各 plane 逐字节一致；无 fd/内存泄漏 | ✅ 已由实验 C 闭合 |
-| **第 1B 步：CUVID shim 与 FFmpeg 集成** | 真实 CUVID decoder/parser/map/unmap；`h264_cuvid`、`h264_nvdec` 双路径 | 两条路径多帧像素、帧数、显示顺序、pitch、flush、资源检查通过；`h264_nvdec` 证明 HIP 直接读取像素正确 | ⚠️ P0 四路双后端 32/32；多 slice/crop/seek 12/12；真实业务配置和长稳待补 |
-| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 | ✅ Stage A 32/32 golden 一致；P2P3/P3P2 双后端联合链路通过；nonfree FFmpeg 由客户自建，真实业务/长稳仍待完成 |
-| **P1：复杂场景与交付验证** | crop、seek/flush、动态分辨率、长期参考、用户应用、异常恢复、安全、部署、生产性能 | 按 [§1.4](#14-p0-技术范围与验收边界) 范围通过；P010、其他 codec/NPP/API 仅在新增需求评审后扩展 | ❌ 未开始 |
+各阶段当前是否通过统一见[当前能力矩阵](../当前能力矩阵.md)。下表只定义证据与通过标准。
+
+| 阶段 | 必交付证据 | 通过标准 |
+|---|---|---|
+| **第 0 步：范围与底层能力确认** | 范围/验收口径；AMD 验证机 HIP/VAAPI 共存、DMA-BUF、LINEAR NV12、实验 C/E | 范围确认；底层能力门禁通过 |
+| **第 1A 步：真实解码→HIP 读** | 同进程 libva 解码→LINEAR surface→DMA-BUF→HIP 读取的程序与日志 | 多帧 NV12 各 plane 逐字节一致；无 fd/内存泄漏 |
+| **第 1B 步：CUVID shim 与 FFmpeg 集成** | 真实 CUVID decoder/parser/map/unmap；`h264_cuvid`、`h264_nvdec` 双路径 | 两条路径多帧像素、帧数、显示顺序、pitch、flush、资源检查通过；`h264_nvdec` 证明 HIP 直接读取像素正确 |
+| **第 2 步：CUVID→NPP 联合业务链路** | 3 个 NPP P0 函数 + 必要 nppc；解码输出接入 NPP | 解码正确；NPP 与 NVIDIA 11.5.1.107 参考逐字节一致；ROI/step/plane/stream/生命周期符合范围 |
+| **P1：复杂场景与交付验证** | crop、seek/flush、动态分辨率、长期参考、用户应用、异常恢复、安全、部署、生产性能 | 按 [§1.1](#11-p0-技术范围与验收边界) 范围通过；P010、其他 codec/NPP/API 仅在新增需求评审后扩展 |
 
 补充要求：
 
@@ -1074,22 +1004,24 @@ Mesa
 
 ### 11.2 双后端验收表
 
-| 验证项 | VAAPI 入口与通过标准 | Vulkan 入口与通过标准 | 当前证据 |
-|---|---|---|---|
-| 符号面 | `make check`；82 + 22 符号可解析 | 同一 CUVID/CUDA 符号面 | PASS，见 [§3.3](#33-符号面结果与错误语义) |
-| CUVID 会话 | `verify_cuvid_session`；VAAPI LINEAR NV12 session 创建/销毁 | `verify_cuvid_session`；VK session 冒烟 | P0 PASS；不代表完整会话语义 |
-| parser | `verify_cuvid_parser`；I/P/B 解析通过 | 共用 `CuvidParser`，另验证 SPS/PPS cache 交接 | P0 PASS；多流/长尾未验收 |
-| mapped 指针 | `verify_kernel_read`；`errors=0`，event 顺序正确 | 同一检查，覆盖 VK 导出 buffer | 两后端均 `errors=0`；不独立证明像素 |
-| 像素 | `verify_decode_to_hip` / dump 对比；四路码流逐字节一致 | `verify_vk_decode_to_hip` / dump 对比；四路码流逐字节一致，fd/显存无泄漏 | 两后端各 82/82；底层 VK I/IP/IPB 各 30 帧也已通过 |
-| FFmpeg 双路径 | `h264_cuvid` / `h264_nvdec`；像素、帧数、顺序、零拷贝计数 | 同一宿主双路径，而非 `h264_vulkan` | ✅ P0 四路双后端 32/32（零拷贝需额外 surface）；长尾未覆盖 |
-| 复杂场景 | seek/flush、crop、动态分辨率、1/8 路 30 分钟，按 [§1.4](#14-p0-技术范围与验收边界) | 同左，另含多流 cache 键控和 reconfigure | ❌ 未覆盖 |
-| 目标平台 | 运行时能力门禁、全量回归、发布检查 | 视频扩展/队列、转换成本、平台矩阵 | ❌ 未跑 |
+两后端当前证据与覆盖边界统一见[当前能力矩阵](../当前能力矩阵.md)。下表只定义同口径验收入口和标准。
+
+| 验证项 | VAAPI 入口与通过标准 | Vulkan 入口与通过标准 |
+|---|---|---|
+| 符号面 | `make check`；82 + 22 符号可解析 | 同一 CUVID/CUDA 符号面 |
+| CUVID 会话 | `verify_cuvid_session`；VAAPI LINEAR NV12 session 创建/销毁 | `verify_cuvid_session`；VK session 冒烟 |
+| parser | `verify_cuvid_parser`；I/P/B 解析通过 | 共用 `CuvidParser`，另验证 SPS/PPS cache 交接 |
+| mapped 指针 | `verify_kernel_read`；`errors=0`，event 顺序正确 | 同一检查，覆盖 VK 导出 buffer |
+| 像素 | `verify_decode_to_hip` / dump 对比；四路码流逐字节一致 | `verify_vk_decode_to_hip` / dump 对比；四路码流逐字节一致，fd/显存无泄漏 |
+| FFmpeg 双路径 | `h264_cuvid` / `h264_nvdec`；像素、帧数、顺序、零拷贝计数 | 同一宿主双路径，而非 `h264_vulkan` |
+| 复杂场景 | seek/flush、crop、动态分辨率、1/8 路 30 分钟，按 [§1.1](#11-p0-技术范围与验收边界) | 同左，另含多流 cache 键控和 reconfigure |
+| 目标平台 | 运行时能力门禁、全量回归、发布检查 | 视频扩展/队列、转换成本、平台矩阵 |
 
 NPP 的设计验证项集中在 [§6.4](#64-npp-验证矩阵设计待验证)，不在这里复制第二套标准。
 
 ### 11.3 性能与稳定性验证方法
 
-P0 只记录性能，不设通过阈值；进入二期前由产品和客户确定门槛，门槛决策见[总体方案](CUDA兼容层总体方案.md)。对比组如下；其中编码和软件降级只用于对照测量，不扩大 [§1.5](#15-当前非目标) 的交付范围。
+P0 只记录性能，不设通过阈值；进入二期前由产品和客户确定门槛，门槛决策见[总体方案](CUDA兼容层总体方案.md)。对比组如下；其中编码和软件降级只用于对照测量，不扩大 [§1.2](#12-当前非目标) 的交付范围。
 
 | 组 | 数据通路 | 用途 |
 |---|---|---|
@@ -1105,29 +1037,13 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 
 ### 11.4 当前补证顺序
 
-> VAAPI 与 Vulkan Video 同级，不以“先完成 VAAPI 再评估 Vulkan”作为资源优先级；以下 1–4 均要求两后端使用同一口径，最终选型由[总体方案](CUDA兼容层总体方案.md)的书面决策完成。
-
-1. 收敛 FFmpeg 宿主矩阵的失败项：VAAPI `nvdec-unsafe` 生命周期、Vulkan NVDEC 的 map 失败；保持 `cuvid-cpu/cuda`、默认安全路径和 PTS/顺序回归；
-2. 实现 NPP 3 个函数并打通“解码 → NPP”联合链路；
-3. 在目标平台复跑底层能力门禁（VAAPI/Vulkan、HIP、DMA-BUF、线性/可导出布局）；
-4. 补多流、seek/flush、crop、动态分辨率、1/8 路 30 分钟；
-5. 基于同一验收结果作出后端选型；决策前不设默认主线或可跳过后端。
+具体未闭环项及对应证据统一见[当前能力矩阵](../当前能力矩阵.md)。VAAPI 与 Vulkan Video 必须使用同一验收口径，不以“先完成 VAAPI 再评估 Vulkan”作为资源优先级；实施顺序与选型决策由[总体方案](CUDA兼容层总体方案.md)管理。
 
 ---
 
-## 12. “能证明 / 不能证明”总表
+## 12. 证据解释边界
 
-| 证据 | 能证明 | 不能证明 |
-|---|---|---|
-| 实验 1/2/3 | HIP 与 VAAPI 同进程共存；DMA-BUF 双向句柄/资源链路可行 | 真实编解码像素 |
-| 实验 C | libva 真实解码→LINEAR→DMA-BUF→HIP 逐字节正确；I/P/B/DPB/显示序 | CUVID shim 端到端；FFmpeg 宿主 |
-| S1–S8 | 主机同步顺序、池复用、DPB 引用、flush/destroy、多线程、fd 长稳 | 真实码流像素；30 分钟业务稳定性 |
-| libcuda 82/47 | 符号面、功能子集可用 | 完整 driver API/ABI、完整 UVM |
-| parser 复用 | SPS/PPS/slice/POC/DPB 可复用 FFmpeg 解析 | 长期参考、场/MBAFF、crop、seek |
-| Vulkan V1–V6 | 队列/codec/会话能力；tiling/同步限制 | 编码稳定性、跨平台矩阵 |
-| Vulkan P0 | VK 解码→拷贝→导出→HIP 读取逐字节；h264_nvdec 四路宿主通过 | 多 slice、多流、crop、动态分辨率 |
-| P0 双后端 82/82 | 两条后端数据通路和 mapped kernel 读取 | FFmpeg 双路径、NPP、业务链路、目标平台 |
-| NPP NVIDIA 参考 | 3 函数参考输出已固化 | AMD 实现与逐字节一致 |
+各项证据当前能证明什么、不能证明什么，统一随[当前能力矩阵](../当前能力矩阵.md)的能力项和边界列维护。总原则不变：程序跑通不等于像素正确，符号可解析不等于功能完成，单批次历史结果不自动升级为当前业务或目标平台能力。
 
 ---
 
@@ -1135,55 +1051,42 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 
 ### 13.1 交付关键问题
 
-| ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
-|---|---|---|---|---|---|
-| R1 | FFmpeg 宿主结果扩展到真实业务 | 合成码流矩阵通过不等于生产线程/队列和长稳 | 32/32 P0 矩阵、多 slice/crop/seek 12/12、8 路并发、1080p/4K 8/8、双后端零 D2D、严格 PTS | 真实应用、30 分钟长稳和性能基线 | 1B–P1 |
-| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | Stage A 32/32 golden 通过；P2P3/P3P2 双后端通过 | nonfree FFmpeg 由客户自建、产品不捆绑；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 第 2 步 |
-| R3 | 目标平台差异 | AMD 布局/驱动/性能不能直接外推 | 仅 AMD 验证机 | 目标平台能力检查；运行时能力探测；Gate 见[总体方案](CUDA兼容层总体方案.md) | 0/1B |
-| R4 | 长尾场景 | 多流/seek/flush/crop/动态分辨率/长期参考 | 未覆盖 | 场景矩阵；缺陷收敛 | P1 |
+| ID | 风险 | 影响 | 缓解 | 阶段 |
+|---|---|---|---|---|
+| R1 | FFmpeg 宿主结果扩展到真实业务 | 合成码流矩阵通过不等于生产线程/队列和长稳 | 真实应用、30 分钟长稳和性能基线 | 1B–P1 |
+| R2 | NPP 数值/ABI/头文件边界 | 3 函数必须逐字节一致；头文件专有；FFmpeg libnpp 标记 nonfree | nonfree FFmpeg 由客户自建、产品不捆绑；最终构建头文件固定为 CUDA/NPP 12.0.1.104 | 第 2 步 |
+| R3 | 目标平台差异 | AMD 布局/驱动/性能不能直接外推 | 目标平台能力检查；运行时能力探测；Gate 见[总体方案](CUDA兼容层总体方案.md) | 0/1B |
+| R4 | 长尾场景 | 多流/seek/flush/crop/动态分辨率/长期参考 | 按[当前能力矩阵](../当前能力矩阵.md)逐项关闭场景缺口 | P1 |
 
 ### 13.2 工程实现约束
 
-| ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
-|---|---|---|---|---|---|
-| R5 | 同步异步化 | 主机同步限制吞吐 | S1–S8 通过；异步未落地 | 保留主机基线；sync_file 协同项 | P1/P2 |
-| R6 | 不支持的码流/格式 | 花屏/静默错误 | 场/MBAFF 显式失败 | 明确返回不支持；不伪成功 | 持续 |
-| R8 | 依赖/版本漂移 | FFmpeg 内部对象、Mesa/ROCm 升级 | 绑定特定版本 | 固定版本；SBOM；回归；许可证义务按[总体方案](CUDA兼容层总体方案.md)评审 | 持续 |
+| ID | 风险 | 影响 | 缓解 | 阶段 |
+|---|---|---|---|---|
+| R5 | 同步异步化 | 主机同步限制吞吐 | 保留主机基线；sync_file 协同项 | P1/P2 |
+| R6 | 不支持的码流/格式 | 花屏/静默错误 | 明确返回不支持；不伪成功 | 持续 |
+| R8 | 依赖/版本漂移 | FFmpeg 内部对象、Mesa/ROCm 升级 | 固定版本；SBOM；回归；许可证义务按[总体方案](CUDA兼容层总体方案.md)评审 | 持续 |
 
 后端特有约束和退出边界：
 
 - **VAAPI**：profile/字段映射错误会导致花屏；pitch/offset/separate layers 处理错误会破坏布局；surface 池不足会覆盖参考帧；方案 Linux-only；FFmpeg 内部对象带来版本漂移与 LGPL 义务评审要求（法务结论见[总体方案](CUDA兼容层总体方案.md)）。目标平台无 LINEAR 或 DMA-BUF 导入能力时，只能明确降级 tiled + GPU 转换；仍不满足业务时重新评估后端。
-- **Vulkan**：tiled→linear 多一次拷贝；双队列 semaphore 生命周期、DPB 槽位/参考集合和驱动版本差异需持续回归；`reconfigure` 未实现，h264_cuvid 的序列 cache 仍为单槽；h264_nvdec 依赖合成的参数集，只覆盖单 slice/默认缩放矩阵等 P0 子集。目标平台无视频队列/解码扩展或转换成本不可接受时，按同级评审结果决定，具体路线决策见[总体方案](CUDA兼容层总体方案.md)。
+- **Vulkan**：tiled→linear 多一次拷贝；双队列 semaphore 生命周期、DPB 槽位/参考集合和驱动版本差异需持续回归；h264_cuvid 的序列 cache 为每线程单槽，同线程多 decoder 需另行键控；h264_nvdec 依赖合成参数集，原始 VUI/crop 等信息不能完整保真。具体实现与验证缺口见[当前能力矩阵](../当前能力矩阵.md)，路线决策见[总体方案](CUDA兼容层总体方案.md)。
 - **Mesa frontends**：上游接受度低，长期 fork 维护和 Mesa 驱动回归面是核心风险；NPP/客户 kernel 仍需独立投入，无法形成近期交付。本章设计不能当作已具备平台能力。
 
 ### 13.3 低概率防御与运维边界
 
 这些项目必须保留防御设计，但“低概率”不是已量化的发生概率，也不降低畸形输入、安全或设备异常项的验收要求。
 
-| ID | 风险 | 影响 | 当前证据 | 缓解 | 阶段 |
-|---|---|---|---|---|---|
-| R7 | 安全：畸形码流/尺寸/fd | parser 崩溃、越界、泄漏 | 正常码流为主 | fuzz/ASan/UBSan；尺寸检查；fd 所有权 | 1B–P1 |
-| R9 | 部署/库冲突 | 误加载系统/NVIDIA 库 | 未形成矩阵 | 安装目录/SONAME/loader 策略；共存测试 | P1 |
-| R10 | 商业承诺放大 | “CUDA 软件都能跑” | — | 对外只描述已验收范围 | 发布 |
-| R11 | 运维：诊断不足 | 跨 CUVID/VAAPI/HIP/DMA-BUF 的错误难以定位 | 以实验日志为主 | 统一记录阶段/会话/codec/返回码/surface/fence 状态；默认不记录原始码流 | 1B–P1 |
-| R12 | 运维：异常恢复 | 驱动错误、设备复位、等待超时导致死锁/残留 | flush/destroy 基础测试 | 注入错误/超时/设备丢失；等待有界超时与恢复策略 | P1 |
+| ID | 风险 | 影响 | 缓解 | 阶段 |
+|---|---|---|---|---|
+| R7 | 安全：畸形码流/尺寸/fd | parser 崩溃、越界、泄漏 | fuzz/ASan/UBSan；尺寸检查；fd 所有权 | 1B–P1 |
+| R9 | 部署/库冲突 | 误加载系统/NVIDIA 库 | 安装目录/SONAME/loader 策略；共存测试 | P1 |
+| R10 | 商业承诺放大 | “CUDA 软件都能跑” | 对外只描述已验收范围 | 发布 |
+| R11 | 运维：诊断不足 | 跨 CUVID/VAAPI/HIP/DMA-BUF 的错误难以定位 | 统一记录阶段/会话/codec/返回码/surface/fence 状态；默认不记录原始码流 | 1B–P1 |
+| R12 | 运维：异常恢复 | 驱动错误、设备复位、等待超时导致死锁/残留 | 注入错误/超时/设备丢失；等待有界超时与恢复策略 | P1 |
 
 ### 13.4 实现缺口台账
 
-| # | 目标设计 | 当前代码 | 缺口 | 影响 | 验收标准 |
-|---|---|---|---|---|---|
-| G1 | H.264 profile 映射：Baseline→ConstrainedBaseline、Main→Main、High→High | `vaapi_h264_decoder.cpp` 固定 `VAProfileH264High` | Baseline/Main 未按 profile 选择 | Baseline/Main 码流兼容性未证实 | 三类 profile 建会话/解码逐字节 |
-| G2 | `cuvidGetDecodeStatus` 反映真实解码完成/错误 | 只查内部状态表，不主动 `vaSyncSurface` | 状态语义偏弱 | 宿主可能读到未完成状态 | 状态与 `vaSyncSurface` 一致 |
-| G3 | `cuvidReconfigureDecoder` 支持分辨率/目标尺寸变化 | 两后端均返回 `NOT_SUPPORTED` | 动态分辨率不可用 | 长尾场景失败 | destroy/recreate 或后端等价实现 |
-| G4 | `CUVIDPROCPARAMS.output_stream` 接入 | 未接入，map 同步 | 异步 map 语义缺失 | 性能语义与 CUDA 不同 | 明确实现或文档化限制 |
-| G5 | 场/MBAFF 显式不支持 | 已显式返回不支持 | 无 | 符合 P0 边界 | 错误码/日志 |
-| G6 | 多流 parser/VkSequenceCache 键控 | 缓存改为线程局部；单进程 8 路并发双后端逐字节通过 | 同线程交错多 decoder 仍不支持 | 8 路/多实例风险 | 多 decoder 并发逐字节 |
-| G7 | seek/flush/crop/动态分辨率 | seek/flush、crop、多 slice 双后端 12/12 通过；动态分辨率 CUVID 宿主重建双后端 22/22；LTR 未实现 | FFmpeg CLI 固定 hwframes、LTR 缺口 | 长尾场景风险 | 场景矩阵 + 宿主重建用例 |
-| G8 | NPP 3 函数 + nppc | Stage A 32/32 golden 通过；FFmpeg `scale_npp` 与双后端颜色联合链路通过；nppc 核心 API 完整并通过探针；FFmpeg 端到端 40/40 SHA256 在 NVIDIA 与 AMD 两侧一致 | 真实业务/长稳；最终构建头文件固定为 CUDA/NPP 12.0.1.104；nonfree FFmpeg 由客户自建 | 核心数值通过 | 逐字节 + 联合链路 |
-| G9 | FFmpeg 双路径验收 | 两后端 CUVID CPU/CUDA、NVDEC 安全/零拷贝、PTS 容器全部通过 | 真实业务线程/队列、多 slice、长稳未覆盖 | 生产交付前继续扩展 | 双路径像素/帧数/顺序/资源 |
-| G10 | 目标平台能力门禁 | 仅 AMD 验证机 | 目标平台未跑 | 结论不可外推 | 目标平台能力检查通过；Gate 定义见[总体方案](CUDA兼容层总体方案.md) |
-| G11 | 异步跨栈 fence | 未实现 | 只有主机同步 | 高吞吐受限 | sync_file/syncobj 端到端 |
-| G12 | 发布物/安装/诊断/回退 | 有构建和部分诊断 | 发布矩阵/安装/回退未形成 | 生产交付缺口 | 发布检查单 |
+实现与验证缺口统一维护在[当前能力矩阵](../当前能力矩阵.md)，本文不再保留第二份 G1–G12 状态台账。各项缺口的验收方法见第 11 章，责任、Gate 与排期见[总体方案](CUDA兼容层总体方案.md)。
 
 ### 13.5 开放问题
 
@@ -1191,33 +1094,15 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 2. 跨平台（Windows/Android）是否是明确业务需求？决定 Vulkan 的战略权重，路线决策见[总体方案](CUDA兼容层总体方案.md)。
 3. 目标平台是否具备 LINEAR surface、DMA-BUF 导入和所需 profile？
 4. NPP 逐字节一致是否在目标平台/编译器组合下仍成立？
-5. `h264_nvdec` 零拷贝在 P0 四路通过，但需要宿主分配额外 surface；真实应用能否接受这一约束，仍需客户配置和长稳验证。
+5. `h264_nvdec` 的 unsafe 输出需要宿主分配额外 surface；真实应用能否接受这一约束，仍需客户配置、显存预算和长稳验证，现有覆盖见[当前能力矩阵](../当前能力矩阵.md)。
 6. 异步 fence 的 ROCr 用户态缺口由谁承担、何时排期？排期决策见[总体方案](CUDA兼容层总体方案.md)。
 7. 是否需要在 P1 扩展 P010/其他 codec/NPP 函数？如需要，重新估算，成本与周期见[总体方案](CUDA兼容层总体方案.md)。
 
 ---
 
-## 14. 追溯矩阵
+## 14. 追溯规则
 
-下表把验收项追溯到组件、源码/测试和证据。Gate 列仅保留追溯标签，Gate 定义和通过决策以[总体方案](CUDA兼容层总体方案.md)为准。
-
-| 验收项 | API/组件 | 源码/测试 | 证据 | Gate |
-|---|---|---|---|---|
-| 符号面 | libcuda 82 / libnvcuvid 22 | `verify_symbols`、`verify_cuvid_symbols` | P0 结果 | G1/G3 |
-| libcuda 功能子集 | 设备/上下文/内存/流/事件 | `test_func_full` | 47 PASS 历史记录 | G3 |
-| CUVID 会话 | `cuvidCreateDecoder` | `verify_cuvid_session` | P0 PASS | 1B |
-| parser | SPS/PPS/slice/DPB | `verify_cuvid_parser` | I/P/B PASS | 1B |
-| mapped 指针 | `cuvidMapVideoFrame64` | `verify_kernel_read` | `errors=0` | 1B |
-| VAAPI 像素 | VAAPI 解码→导出→HIP | `verify_decode_to_hip` | 四路 82/82 | 1A/1B |
-| Vulkan 像素 | VK 解码→拷贝→导出→HIP | `verify_vk_decode_to_hip` | 四路 82/82 | 1A/1B |
-| FFmpeg 双路径 | `h264_cuvid`/`h264_nvdec` | `run_ffmpeg_compare.sh` | ✅ P0 四路双后端 32/32；PTS 8/8 | 1B |
-| 零拷贝计数 | `h264_nvdec` D2D=0 | `CUDA_SHIM_TRACE_COPY=1` | ✅ 双后端四路 D2D=0（需额外 surface） | 1B |
-| NPP 参考 | 3 函数 | `npp_p0_reference.cpp` | NVIDIA 11.5.1.107 已固化 | 第 2 步 |
-| NPP AMD | 3 函数 + nppc | Stage A + 独立 FFmpeg | ✅ 32/32 golden 逐字节；nppc 核心 API 完整；FFmpeg 端到端 40/40 与 NVIDIA 一致 | 第 2 步 |
-| 联合链路 | 解码→NPP | 双后端 P2P3/P3P2 + FFmpeg scale_npp | ✅ 颜色转换逐字节；真实业务/长稳未覆盖 | 第 2 步 |
-| 复杂场景 | seek/crop/动态分辨率/多流 | 验证手册场景矩阵 | ❌ 未覆盖 | P1 |
-| 稳定性 | 1/8 路 30 分钟 | 验证手册 | ❌ 未覆盖 | G3 |
-| 目标平台 | 全部 | Gate G1 | ❌ 未跑 | G1/G4 |
+能力项、当前状态、边界和证据的统一追溯入口为[当前能力矩阵](../当前能力矩阵.md)。本文第 16 章只提供源码、实验和历史证据索引；Gate 定义与通过决策见[总体方案](CUDA兼容层总体方案.md)，不再维护另一张验收状态矩阵。
 
 ---
 

@@ -2,7 +2,7 @@
 
 在非 NVIDIA GPU 上，为**重新编译**的 CUDA 视频应用提供 NVDEC / CUVID / NPP 兼容层：用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、`libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
 
-> 当前定位：**P0 双后端数据通路已验证，业务链路尚未验收**；不是生产可用版本。请先阅读[验证边界](#验证边界)。
+> 当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](docs/当前能力矩阵.md)。本项目不是生产可用版本。
 
 ## 仓库结构
 
@@ -17,6 +17,7 @@
 ├── THIRD_PARTY.md             # 第三方依赖与许可证
 ├── docs/
 │   ├── README.md              # 文档索引
+│   ├── 当前能力矩阵.md         # 唯一当前状态与验证边界
 │   ├── 仓库结构与迁移.md       # 目录树、旧路径映射、迁移自检
 │   ├── architecture/          # 架构、方案、API 映射、内存模型
 │   ├── verification/          # 验证手册（环境/构建/实验/排障）
@@ -27,7 +28,7 @@
 │   ├── tests/                 # 组件内测试（符号、会话、parser、kernel 读取）
 │   ├── Makefile
 │   └── CMakeLists.txt
-├── npp_shim/                  # NPP Stage A：libnppc/libnppig/libnppicc + 占位库
+├── npp_shim/                  # NPP 兼容库：libnppc/libnppig/libnppicc + 占位库
 │   ├── src/                   # HIP resize / NV12↔YUV420P 与核心占位
 │   └── Makefile
 ├── tests/
@@ -35,7 +36,7 @@
 │   ├── zerocopy/              # VAAPI / Vulkan Video → HIP 端到端像素校验
 │   ├── sync/                  # 同步协议与异步 fence 现状探测
 │   ├── vulkan-video/          # Vulkan Video 能力探测（basic / full）
-│   ├── npp/                   # NPP Stage A 参考/候选探针与逐字节比较
+│   ├── npp/                   # NPP Stage A/B 探针、FFmpeg 矩阵与逐字节比较
 │   └── quick-verify/          # mapped pointer kernel 读取、FFmpeg 双路径脚本
 ├── benchmarks/                # NVDEC / VAAPI / NPP / VPP 对比测试
 ├── testdata/h264/             # 小体积 H.264 测试码流
@@ -100,28 +101,12 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 
 ## 验证边界
 
-已记录的结果（完整证据见 [P0 闭环验证结果](docs/evidence/P0闭环验证结果_2026-11-12.md)）：
-
-- **2026-11-12 AMD P0 闭环**：两个后端 × 四路码流，每后端 82/82 帧与软件参考逐字节一致（合计 164 帧）；`verify_kernel_read` 两个后端 `errors=0`；`make check` / `check_func` / parser / session 全部 PASS。
-- Vulkan B 帧挂死（VCN ring timeout）根因已定位并修复（视频会话内存 use-after-free），见 [Vulkan 后端实现 §8](docs/architecture/Vulkan后端实现.md#8-上机验证结论rx-7900-xtx--radv)。
-- `libcuda` 功能子集 47 PASS / 0 FAIL（历史记录）。
-- VAAPI 真实解码 → HIP 读：I / I-P / I-P-B 各 30 帧逐字节一致。
-- 同步协议 S1–S8 通过；S8 1000 帧文件句柄稳定。
-- Vulkan Video 解码 → 拷贝 → 导出 → HIP 读：三类码流各 30 帧逐字节一致，无 fd/显存泄漏。
-- **2026-11-13 FFmpeg 宿主双后端基线**：四路码流 × VAAPI/VK × 四种宿主模式共 32 组合，修复后 32 PASS / 0 FAIL / 0 SKIP。两后端的 `nvdec-unsafe` 均达到 D2D=0 且逐字节一致；带 PTS 容器的双后端 8/8 组合通过。零拷贝要求 `h264_nvdec` 分配额外 surface（`-extra_hw_frames`）。完整证据见 [宿主基线](docs/evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)和 [PTS 顺序验证](docs/evidence/FFmpeg_PTS顺序_2026-11-13/README.md)。
-
-仍**未**完成的验收项：
-
-- FFmpeg 宿主结果扩展到真实业务应用、不同线程/队列配置和长时间运行；
-- 长期参考帧、FFmpeg CLI 级动态分辨率、P010/奇数分辨率（多 slice/crop/seek、CUVID 宿主动态分辨率、8 路并发已完成，见[解码复杂场景](docs/evidence/解码复杂场景_2026-11-16/README.md)和[多流与动态分辨率](docs/evidence/多流与动态分辨率_2026-11-16/README.md)）；
-- 异步跨栈 fence；
-- NPP 联合链路：Stage A shim 与 NVIDIA NPP 11.5.1.107 golden 32/32 条目逐字节一致；最终构建头文件固定为 CUDA/NPP 12.0.1.104，无需 11.5 头文件重建；`libnppc` 核心 API 已补全并通过探针；FFmpeg `scale_npp` 和双后端 P2P3/P3P2 已打通，端到端 40 case 在 NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 两侧均重复运行，且 40/40 SHA256 逐字节一致（NVIDIA golden 与对照证据已归档）。最终覆盖全部 interp_algo；FFmpeg 将 libnpp 标记 nonfree，按交付边界由客户自行构建、我方不随芯片/驱动分发；编码链路（实验 D 输出异常，暂停）；
-- 目标平台、1/8 路 30 分钟稳定性、真实业务性能；
-- P0 原始运行命令、stdout/环境版本仍需归档。
+当前实现、各项验证的覆盖范围、未闭环项和对应证据统一维护在[当前能力矩阵](docs/当前能力矩阵.md)。本文不再复制阶段结果；历史批次记录见 [evidence](docs/evidence/README.md)。
 
 ## 文档
 
 - [文档索引](docs/README.md)
+- [当前能力矩阵](docs/当前能力矩阵.md)：唯一当前实现、验证覆盖与未闭环项
 - [总体方案](docs/architecture/CUDA兼容层总体方案.md)：总体架构、技术选型、成本人力、排期 Gate、法务/客户边界与长期 SDK 规划
 - [技术实现、验证与风险边界](docs/architecture/CUDA兼容层方案_整合版.md)
 - [仓库结构与迁移](docs/仓库结构与迁移.md)

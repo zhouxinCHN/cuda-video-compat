@@ -11,7 +11,7 @@
 
 ## 0. P0 API 覆盖基线
 
-> 状态：符号范围已确认。parser 复用 FFmpeg 解析已在 AMD 验证机通过 I-only 与 I/P/B 测试；P0 双后端四路码流逐字节通过，`verify_kernel_read` errors=0（见 [P0 结果](../evidence/P0闭环验证结果_2026-11-12.md)）；FFmpeg 宿主双路径（`h264_cuvid` / `h264_nvdec`）尚未正式验收。
+> 当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文只维护符号范围和字段映射，不维护阶段状态。
 
 ### 0.1 CUVID 动态加载符号面
 
@@ -126,10 +126,10 @@ FFmpeg 的 `dynlink_loader.h` 按固定名字 `dlopen`：
 | CUVID 函数（`tcuvid*`） | 映射到 libva | 备注 |
 |---|---|---|
 | `cuvidGetDecoderCaps(CUVIDDECODECAPS*)` | `vaInitialize` + `vaQueryConfigProfiles` + `vaQueryConfigEntrypoints` + 静态 caps 表（§5） | 按 codec×chroma×bitdepth 查表回填 |
-| `cuvidCreateDecoder(CUvideodecoder*, CUVIDDECODECREATEINFO*)` | `vaCreateConfig` + `vaCreateContext` + `vaCreateSurfaces` | 结构体字段映射见 §4.1；当前实现固定 `VAProfileH264High`，Baseline/Main 映射待补（整合版实现缺口 G1） |
+| `cuvidCreateDecoder(CUvideodecoder*, CUVIDDECODECREATEINFO*)` | `vaCreateConfig` + `vaCreateContext` + `vaCreateSurfaces` | 结构体字段映射见 §4.1；profile 当前实现与验证边界见[当前能力矩阵](../当前能力矩阵.md) |
 | `cuvidDestroyDecoder` | `vaDestroySurfaces` + `vaDestroyContext` + `vaDestroyConfig` | |
 | `cuvidDecodePicture(h, CUVIDPICPARAMS*)` | `vaBeginPicture` + `vaRenderPicture`(SPS/PPS/slice) + `vaEndPicture` | 见 §4.2 |
-| `cuvidGetDecodeStatus(h, nPicIdx, CUVIDGETDECODESTATUS*)` | shim 内部 surface 状态表 | VAAPI 无逐帧查询，shim 自维护；当前未主动 `vaSyncSurface`（整合版实现缺口 G2） |
+| `cuvidGetDecodeStatus(h, nPicIdx, CUVIDGETDECODESTATUS*)` | shim 内部 surface 状态表 | VAAPI 无逐帧查询，shim 自维护；当前状态语义与验证边界见[当前能力矩阵](../当前能力矩阵.md) |
 | `cuvidReconfigureDecoder` | 销毁重建 context（VAAPI 无动态 reconfigure） | 仅限分辨率/目标尺寸变化；当前未作为 P0 验收项 |
 | `cuvidMapVideoFrame64(h, idx, *dptr, *pitch, CUVIDPROCPARAMS*)` | `vaSyncSurface` + surface 导出/导入；若带 target 尺寸则接 VPP | 见 §4.3 |
 | `cuvidUnmapVideoFrame64` | 销毁导入对象 / 标记 surface 可复用 | |
@@ -231,13 +231,13 @@ CUVID 的 NVDEC 硬件可以“吃完整码流自解析”：FFmpeg `nvdec.c` �
 | VP9 | 420 | 8 / 10 | 1 |
 | MPEG2 | 420 / 422 | 8 | 1 |
 
-回填值（**AMD 侧 caps 尚未实测**，当前以 RTX 4060 参考值占位）：
+历史 RTX 4060 参考值（不是当前 AMD shim 的能力声明）：
 
 - `nMaxWidth=4096, nMaxHeight=4096, nMaxMBCount=65536, nMinWidth=48, nMinHeight=16`
 - `nOutputFormatMask`：按支持位深置 NV12/P016/YUV444/YUV444_16Bit 位
 - `bIsHistogramSupported=0`
 
-> 待办：在目标 AMD 平台运行 `vaQueryConfigAttributes` 探测，替换占位值。在此之前，caps 只用于“不误报支持”，不能作为性能/格式承诺。
+当前 shim 的 caps 实现与动态探测缺口见[当前能力矩阵](../当前能力矩阵.md)。目标平台必须运行 `vaQueryConfigAttributes` 等能力查询，不能用上述历史值作为性能或格式承诺。
 
 ---
 
@@ -294,16 +294,9 @@ CUVID 的 NVDEC 硬件可以“吃完整码流自解析”：FFmpeg `nvdec.c` �
 
 ---
 
-## 9. 附录：libcuda 实现状态
+## 9. 附录：libcuda 实现约定
 
-| 项目 | 状态 | 说明 |
-|---|---|---|
-| 项目骨架 | ✅ | `cuda_shim/`（include/src/tests + Makefile/CMakeLists.txt） |
-| `libcuda.so.1` 编译 | ✅ | g++ 直编 |
-| 82 个必需符号导出 | ✅ | `verify_symbols` 全通过（模拟 FFmpeg `cuda_load_functions` 的 dlsym 清单） |
-| HIP 运行时链接 | ✅ | `libamdhip64` 正确依赖，无 undefined symbol |
-| 功能子集 | ✅ | `test_func_full` 47 PASS / 0 FAIL；覆盖设备、上下文、内存、2D 拷贝、流/事件、primary ctx |
-| 完整 ABI / UVM | ❌ | 不承诺完整 driver API/ABI 与 NVIDIA UVM 语义 |
+当前符号、功能子集和 ABI 验证边界统一见[当前能力矩阵](../当前能力矩阵.md)。
 
 关键实现决策：
 

@@ -22,16 +22,15 @@ golden and candidate output; `manifest.tsv` records geometry and output files.
 NPP ABI host code and GPU-runtime code are split into separate translation units
 because CUDA/NPP and HIP headers define conflicting vector types.
 
-Current status: the final build header baseline is CUDA/NPP 12.0.1.104 and
-FFmpeg `scale_npp` loads the shim. No rebuild with 11.5 headers is required; the
-NVIDIA NPP 11.5.1.107 golden remains the runtime/ABI numerical reference. The
-AMD candidate matches all 32 entries byte-for-byte; P2P3/P3P2 joint chains pass.
-See [AMD vs golden evidence](../../docs/evidence/NPP_StageA_AMD_11.5对比_2026-11-13/README.md).
-Stage B has an NVIDIA 11.5 golden for Lanczos and Super (14 entries); NPP
-11.5.1.107 rejects `CUBIC2P_*` at runtime, so those modes are not part of the
-11.5 baseline. See section 7.
-The end-to-end FFmpeg matrix and the `libnppc` core API probe are described in
-sections 4 and 5.
+Current implementation, validation coverage and open items are maintained only
+in the [current capability matrix](../../docs/当前能力矩阵.md). This document
+covers probe and reproduction workflows; historical outputs are archived under
+[evidence](../../docs/evidence/README.md).
+
+The final build-header baseline is CUDA/NPP 12.0.1.104. No rebuild with 11.5
+headers is required; NVIDIA NPP 11.5.1.107 remains the runtime/ABI numerical
+reference. The end-to-end FFmpeg matrix and the `libnppc` core API probe are
+described in sections 4 and 5.
 
 ## 1. NVIDIA golden host
 
@@ -283,29 +282,8 @@ Archived results: 10/10 Lanczos and 6/6 Super deterministic, plus the
 `cubic2p` `-22` failure log:
 [NPP Stage B NVIDIA 11.5 golden](../../docs/evidence/NPP_StageB_NVIDIA_11.5_golden/README.md).
 
-## Stage A acceptance status
+## Acceptance status
 
-1. ✅ NVIDIA 11.5.1.107 golden generated with recorded environment;
-2. ✅ comparator passes with zero differing bytes (32/32, 2,490,624 bytes);
-3. ✅ FFmpeg `scale_npp` built against the shim; `nn`, `linear`, `cubic` and
-   default cubic execute, default equals explicit cubic;
-4. ✅ decode → P2P3 and upload → P3P2 are byte-identical on VAAPI and Vulkan;
-5. ✅ FFmpeg nonfree build is customer-built; vendor delivery is chip plus
-   driver and does not bundle it;
-6. ✅ final build headers fixed at CUDA/NPP 12.0.1.104; no 11.5 header rebuild;
-7. ✅ `libnppc` core API (version, device limits, name, stream, stream context)
-   implemented and probed on the AMD shim;
-8. ✅ FFmpeg `scale_npp` end-to-end matrix: AMD side is deterministic (40/40,
-   26,307,120 bytes); NVIDIA golden generated with real NPP 11.5.1.107, and all
-   40 case SHA256 values match. See
-   [NVIDIA evidence](../../docs/evidence/NPP_FFmpeg_scale_npp_NVIDIA_2026-11-16/README.md).
-9. ✅ rawvideo + `hwupload_cuda` cross-frame corruption fixed in `libcuda.so.1`;
-   `verify_hwupload_roundtrip.sh` passes 6/6 for `yuv420p` and `nv12`. See
-   [hwupload fix evidence](../../docs/evidence/cuda_shim_hwupload_fix_2026-11-16/README.md).
-10. ⏳ Stage B: `LANCZOS` matches 181,247/181,248 probe bytes against the
-    NVIDIA 11.5 golden and FFmpeg integer-ratio cases match; non-integer
-    FFmpeg cases and `SUPER` remain open. `CUBIC2P_*` is gated off by default
-    because NPP 11.5 has no runtime kernel (returns -22); set
-    `NPP_SHIM_ENABLE_CUBIC2P=1` to exercise it. On the AMD host run
-    `./npp_stage_a_probe --stage b --skip cubic2p_bspline,cubic2p_catmullrom,cubic2p_b05c03,super`;
-    the golden host used the same skip.
+Current acceptance status and open items are maintained only in the
+[current capability matrix](../../docs/当前能力矩阵.md). This section
+intentionally retains no second status list.
