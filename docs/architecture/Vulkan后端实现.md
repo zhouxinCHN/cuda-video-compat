@@ -1,8 +1,8 @@
 # Vulkan Video 后端实现与移植指南
 
-> 版本：v1.3
-> 文档日期：2026-11-13
-> 版本说明：v1.3 增加 `h264_nvdec` 参数集合成、显式失败和双后端宿主 32/32 结果；v1.2 标注后端同级及修复前基线。
+> 版本：v1.4
+> 文档日期：2026-11-19
+> 版本说明：v1.4 增加能力查询/解码流水线（§3.7、§8.5）和 LINEAR 直出探针记录（§8.6），修正“解码输出只能 OPTIMAL”的旧结论；v1.3 增加 `h264_nvdec` 参数集合成、显式失败和双后端宿主 32/32 结果；v1.2 标注后端同级及修复前基线。
 > 当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文只维护 Vulkan 实现、接缝、历史根因与移植指南，不维护阶段状态副本。
 > 职责：本文是 Vulkan 后端的实现、接缝、根因、验证与移植指南的唯一权威文档。能力评估与编码风险见 [Vulkan Video 方案评估](Vulkan_Video方案评估.md)；内存/同步语义见[内存与同步模型](内存与同步模型.md)；宿主结果见 [FFmpeg 宿主双后端基线](../evidence/FFmpeg宿主双后端基线_2026-11-13/README.md)。
 > 环境注意：验证脚本统一显式设置 `RADV_PERFTEST=video_decode`。已有探测显示部分 Mesa 版本默认暴露视频队列族，但尚未做同版本 A/B 对照；在复测前保留显式设置作为保守做法。
@@ -245,6 +245,17 @@ FFmpeg 的做法是把它放在 `common->mem[]` 里，只有 `ff_vk_video_common
 
 未覆盖：COINCIDE-only 驱动与“只宣告 LINEAR”的驱动在本机不存在，对应分支只有能力拒绝/退化逻辑，未在真实设备上执行；性能收益（decode 与 export 拷贝重叠）尚未做同口径 A/B，矩阵“性能”一项仍是未闭环。
 
+### 8.6 LINEAR 直出探针（`hip-decode-20261119/`）
+
+与后端实现分开的一次驱动能力验证：把解码输出面直接建成 LINEAR 并确认 HIP 能直接读，不经过本后端的 tiled→linear 拷贝。
+
+- 输出面：`VK_IMAGE_TILING_LINEAR` + `VK_IMAGE_CREATE_VIDEO_PROFILE_INDEPENDENT_BIT_KHR` + external memory（dedicated），`vkGetMemoryFdKHR(OPAQUE_FD)` → `hipImportExternalMemory`；DPB 仍是 OPTIMAL。
+- 码流侧：复用 FFmpeg 的 SPS/PPS/slice-header/POC 解析，真实 I/P/B + 多参考 DPB；输出按 `(GOP, POC)` 显示序与 ffmpeg 软解逐帧逐字节比较，crop 流按显示区域比较。
+- 结果（RX 7900 XTX / RADV / Mesa 25.2.8，validation layer 开启）：**20 PASS / 3 SKIP / 0 FAIL**。覆盖 Baseline/Main/High × 8-bit 4:2:0，B-pyramid、refs=16、4 slices、intra-refresh、open-GOP、weighted、deblock off、AUD，96x96–4K，854x480 与 1080p 的 crop。
+- 驱动能力边界：`vkGetPhysicalDeviceVideoFormatPropertiesKHR` 只宣告 OPTIMAL（LINEAR 属“可用但未宣告”）；High 10 / High 4:2:2 / High 4:4:4 以及任何 10-bit 返回 `VK_ERROR_VIDEO_PROFILE_*_NOT_SUPPORTED`；4:2:2/4:4:4 即使 caps 通过，也没有对应的 decode-DST 格式，探针按 SKIP 处理。
+- 未覆盖：10-bit（本机 libx264 为 8-bit 构建；探针已实现 P010 输出与比较）、MMCO 长期参考、SP/SI、interlaced/MBAFF、POC type 1、FMO/ASO、同一流内 SPS/PPS 切换。
+- 与本后端的关系：探针只证明驱动通路。后端仍走“tiled 解码 + GPU 内拷贝”（§3.7 的 LINEAR 只是拷贝路径的 tiling 回退）；改直出需要 `HipFrameMapping` 支持逐平面 offset，并做运行时能力探测，见[当前能力矩阵](../当前能力矩阵.md)和 [validation.txt](../../hip-decode-20261119/validation.txt)。
+
 ## 9. 移植指南（从 VAAPI 验证程序到 Vulkan 后端）
 
 ### 9.1 目标数据通路
@@ -338,7 +349,7 @@ VkFence 完成
 
 ### 9.6 不要做的事
 
-1. 不要试图让 Vulkan 解码输出 LINEAR——规范锁死，改 Mesa 是永久 fork。
+1. 不要把“format query 只宣告 OPTIMAL”当成“硬件不能 LINEAR”。`hip-decode-20261119` 已在 AMD 机上证明：用 `VK_KHR_video_maintenance_1` 的 profile-independent 图像 + external memory 可以把 H.264 8-bit 4:2:0（Baseline/Main/High）直接解码进 LINEAR 输出面，导出 OPAQUE_FD 后 HIP 直接读取，96x96–4K、P/B/多 slice/crop 逐字节一致。但该能力不在驱动宣告内，跨驱动不可移植；要用它必须做运行时探测（见探针的 `--probe`），不能当成规范保证，也不能直接替换当前 tiled+拷贝实现（`HipFrameMapping` 需要按逐个平面 offset 映射）。
 2. 不要改 `hipImportExternalMemory` 去“读 tiled”——tiling 在硬件寻址层，改接口无效。
 3. 不要在 opaque semaphore 上花时间——跨栈不互认，死胡同，改走 sync_file 桥接。
 4. 不要把 `verify_kernel_read` 的 `OK/Ysum` 当成画面正确性证据。

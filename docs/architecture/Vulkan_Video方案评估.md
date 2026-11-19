@@ -13,7 +13,7 @@
 | 问题 | 结论 |
 |---|---|
 | Vulkan Video 能否实现编解码？ | **可行**，且是比 VAAPI 更「跨厂商」的开放标准，但生态和驱动成熟度目前不如 VAAPI |
-| 能否与 HIP 零拷贝？ | **有条件可以**：`VK_KHR_external_memory_fd` 导出 dma-buf ↔ `hipImportExternalMemory` 导入可行；但 Vulkan Video 解码输出必须是 OPTIMAL tiling，需先 GPU 内拷贝到线性 buffer，因此不是严格零拷贝 |
+| 能否与 HIP 零拷贝？ | **有条件可以**：`VK_KHR_external_memory_fd` 导出 dma-buf ↔ `hipImportExternalMemory` 导入可行。format query 只宣告 OPTIMAL，兼容层因此先做一次 GPU 内拷贝；但 `hip-decode-20261119` 探针已证明受支持的 H.264 8-bit 4:2:0（Baseline/Main/High）可以 linear 直出并直接导入 HIP——该能力未在驱动宣告内，跨驱动不可移植，需运行时探测 |
 | 当前验证状态 | 见[当前能力矩阵](../当前能力矩阵.md)；历史实测环境为 RX 7900 XTX / RADV |
 
 ---
@@ -225,7 +225,7 @@ Vulkan Video 编码要真正跑起来，需要**逐层都成立**。任何一层
 |---|---|---|
 | **V1: 视频队列** | ✅ PASS | 探测时 `VIDEO_DECODE` 和 `VIDEO_ENCODE` 队列族默认可用；解码扩展是否默认启用尚未做同版本 A/B 对照 |
 | **V2: 编解码能力** | ✅ PASS | H264/HEVC 解码能力完整，H264 编码能力完整 |
-| **V3: 视频格式** | ⚠️ 部分 PASS | 支持 NV12，但**只支持 OPTIMAL tiling**，不支持 LINEAR |
+| **V3: 视频格式** | ⚠️ 部分 PASS | 宣告支持 NV12 + OPTIMAL tiling；**LINEAR 不在宣告内**，但后续探针证明受支持格式可解码进 LINEAR（未宣告） |
 | **V4: 会话对象** | ✅ PASS | 视频会话可以创建，内存需求可以查询 |
 | **V6: 外部信号量** | ❌ FAIL | HIP 不支持导入 Vulkan 导出的外部 semaphore |
 
@@ -264,7 +264,7 @@ queue family[4]: flags=SPARSE  queueCount=1
 
 **结论**：编解码能力**完全满足** NVDEC/NVENC shim 的需求。
 
-#### V3: 视频格式（只支持 OPTIMAL tiling）
+#### V3: 视频格式（宣告只有 OPTIMAL tiling）
 
 ```
 format[0]: vkFormat=1000156003 (NV12) imageTiling=0 (OPTIMAL) imageUsage=0x1000
@@ -272,14 +272,14 @@ format[0]: vkFormat=1000156003 (NV12) imageTiling=0 (OPTIMAL) imageUsage=0x1000
 
 **关键发现**：
 - ✅ 支持 NV12（`VK_FORMAT_G8_B8R8_2PLANE_420_UNORM`）
-- ❌ **不支持 LINEAR tiling**（imageTiling=0 表示 OPTIMAL）
+- ⚠️ **宣告的 tiling 只有 OPTIMAL**（imageTiling=0 表示 OPTIMAL）；这一项衡量的是 format query，不等于硬件不能 LINEAR
 
 **影响**：
-- Vulkan Video 解码输出的 surface 是 OPTIMAL tiling（tiled + DCC）
-- HIP 无法直接按线性 NV12 读取 Vulkan Video 解码输出
+- 按宣告创建输出面时，解码 surface 是 OPTIMAL tiling（tiled + DCC）
+- HIP 无法直接按线性 NV12 读取 tiled surface
 - 需要一次 GPU 内转换；首选 `vkCmdCopyImageToBuffer`（硬件拷贝引擎），无需自写 compute shader
 
-**这是 Vulkan Video 零拷贝路线的核心障碍**。
+**后续修正（2026-11-19，`hip-decode-20261119` 探针）**：用 `VK_KHR_video_maintenance_1` 的 profile-independent 图像 + external memory 可以把解码输出面直接建成 `VK_IMAGE_TILING_LINEAR` 并解码进去，`vkGetMemoryFdKHR(OPAQUE_FD)` → HIP 直接导入，无 tiled→linear 拷贝。已验证 Baseline/Main/High × 8-bit 4:2:0，96x96–4K、P/B/多 slice/crop 逐字节一致。结论要分层表述：**宣告内**只有 OPTIMAL（当前兼容层实现依赖这一层，每帧一次拷贝）；**驱动实际能力**包含 LINEAR 直出，但未宣告、跨驱动不可移植，必须运行时探测，不能当作规范保证。
 
 #### V4: 会话对象（可以创建）
 
@@ -317,11 +317,11 @@ hipImportExternalSemaphore: operation not supported
 - 会话对象可以创建
 - 可以作为编解码后端候选
 
-#### 零拷贝：❌ 受限
+#### 零拷贝：⚠️ 宣告内受限，直出可行
 
-- 视频格式只支持 OPTIMAL tiling，不支持 LINEAR
-- HIP 无法直接读取 Vulkan Video 解码输出的 tiled surface
-- 需要一次 GPU 内拷贝（`vkCmdCopyImageToBuffer`），**不需要自写 compute shader**；这是固定成本
+- format query 只宣告 OPTIMAL；当前后端按宣告实现，需要一次 GPU 内拷贝（`vkCmdCopyImageToBuffer`，**不需要自写 compute shader**）
+- 但 LINEAR 直出已在探针中验证可行（见 V3 的后续修正）：受支持的 H.264 8-bit 4:2:0 可以解码进 LINEAR 输出面并直接导入 HIP，中间没有图像转换
+- 直出的前提是驱动接受 profile-independent + external memory 的 LINEAR 输出面，且 LINEAR 不在 format query 宣告内，需要运行时探测；兼容层尚未采用
 
 #### 异步同步：❌ 未落地
 
@@ -348,14 +348,14 @@ hipImportExternalSemaphore: operation not supported
 
 | 维度 | VAAPI | Vulkan Video |
 |---|---|---|
-| 零拷贝 | ✅ 支持 LINEAR tiling | ❌ 只支持 OPTIMAL tiling |
+| 零拷贝 | ✅ 宣告支持 LINEAR tiling | ⚠️ 宣告只有 OPTIMAL；探针显示受支持格式可 LINEAR 直出（未宣告，需运行时探测） |
 | 异步同步 | ⚠️ 未落地；当前主机同步为基线，sync_file/syncobj 是候选 | ❌ 只能主机同步 |
 | 驱动成熟度 | ✅ 成熟 | ⚠️ 较新，但实测能力完整 |
 | 跨平台 | ❌ Linux 专用 | ✅ 跨平台 |
 
 **结论**：
 - 两者同级接受验证，不预设首选或降级关系；
-- VAAPI 的优势是 LINEAR 真零拷贝；Vulkan 的代价是每帧一次 GPU 内 tiled→linear 转换，优势是跨平台标准；
+- VAAPI 的优势是宣告内 LINEAR 真零拷贝；Vulkan 在宣告内需要每帧一次 GPU 内 tiled→linear 转换（探针显示受支持格式可直出，但未宣告、需运行时探测），优势是跨平台标准；
 - 选型需结合业务平台、目标硬件能力、转换成本、维护投入和 FFmpeg 真实业务结果，由书面决策完成。
 
 ### 7.5 下一步建议

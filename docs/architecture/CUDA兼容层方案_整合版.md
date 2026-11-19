@@ -1,8 +1,8 @@
 # CUDA 兼容层技术实现、验证证据与风险边界（方案整合版）
 
-> 版本：v4.16
-> 文档日期：2026-11-17
-> 技术事实截止：2026-11-17
+> 版本：v4.17
+> 文档日期：2026-11-19
+> 技术事实截止：2026-11-19
 > 职责：本文负责共享架构、数据通路、同步、ABI、parser、NPP、VAAPI/Vulkan/Mesa 后端实现，以及验证方法、防御性风险、历史实验和源码索引。
 > 不负责：当前实现、验证覆盖与未闭环项见[当前能力矩阵](../当前能力矩阵.md)；路线选型、成本、人力、排期、Gate 和法务决策见[总体方案](CUDA兼容层总体方案.md)；字段级翻译见[CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md)；内存/同步契约见[内存与同步模型](内存与同步模型.md)；复现步骤见[验证手册](../verification/验证手册.md)。
 > 读者：架构评审、工程实施、测试与风险决策。
@@ -482,24 +482,27 @@ Annex-B 数据包
 |---|---|---|
 | V1 视频队列 | ✅ | DECODE/ENCODE 队列族默认可用；是否需 `RADV_PERFTEST` 未做同版本 A/B |
 | V2 编解码能力 | ✅ | H264 解码 4096×4096/DPB17/DISTINCT；HEVC 8192×4352；H264 编码 CBR/VBR/CQP |
-| V3 视频格式 | ⚠️ | 支持 NV12，但只支持 OPTIMAL tiling，不支持 LINEAR |
+| V3 视频格式 | ⚠️ | format query 支持 NV12，但只宣告 OPTIMAL tiling；LINEAR 不在宣告内（探针证明受支持格式可直出，见 §5.3） |
 | V4 会话对象 | ✅ | 会话可创建、内存需求可查、可销毁 |
 | V6 外部信号量 | ❌ | Vulkan 可导出 fd，但 `hipImportExternalSemaphore` = operation not supported |
 
-结论：Vulkan Video **编解码能力完整**，可作与 VAAPI 同级的候选；OPTIMAL/tiled 输出使严格零拷贝受限，HIP 不能按线性直接读，需额外 GPU 转换；当前 HIP 不支持外部 semaphore，只能主机同步，sync_file/syncobj 是候选。选型前不设降级关系。
+结论：Vulkan Video **编解码能力完整**，可作与 VAAPI 同级的候选；宣告内只有 OPTIMAL/tiled，当前实现需要额外 GPU 转换（探针显示受支持格式可 LINEAR 直出，但未宣告）；当前 HIP 不支持外部 semaphore，只能主机同步，sync_file/syncobj 是候选。选型前不设降级关系。
 
 ### 5.3 结构性约束
 
-V3 只报告 OPTIMAL、不支持 LINEAR，是两层硬约束叠加：
+V3 只**宣告** OPTIMAL，是宣告层和寻址层两件事，不能混为一谈：
 
-1. **规范层**：Vulkan Video 要求解码输出图与 DPB 以 `VK_IMAGE_TILING_OPTIMAL` 创建，API 无“请求 LINEAR”字段。
+1. **宣告层**：`vkGetPhysicalDeviceVideoFormatPropertiesKHR` 对该 profile 只返回 OPTIMAL。按宣告创建图像时，解码输出就是 tiled。
 2. **寻址层**：tiled（含 swizzle、可能带 DCC）的“解”只有纹理单元能做；HIP/CUDA 普通设备指针是平坦线性地址，导入 tiled 显存后按线性读必然错位。external memory 只解决“指向同一块物理内存”，不改变内存内数据排列。
+
+**2026-11-19 修正**：`hip-decode-20261119` 探针证明，用 `VK_KHR_video_maintenance_1` 的 profile-independent 图像 + external memory 可以把解码输出面直接建成 `VK_IMAGE_TILING_LINEAR` 并解码进去（Baseline/Main/High × 8-bit 4:2:0，96x96–4K、P/B/多 slice/crop 逐字节一致），导出 OPAQUE_FD 后 HIP 直接导入。也就是说“API 无请求 LINEAR 字段”不成立——有 profile-independent 这条路径，validation layer 也不拒绝；缺的只是驱动把 LINEAR 宣告出来。该能力未宣告，跨驱动不可移植，兼容层当前仍按宣告走拷贝。
 
 候选技术路径的边界：
 
 | 路线 | 结论 |
 |---|---|
-| 改 Mesa 出 LINEAR | 不推荐：违反规范、validation layer 拒绝、进不了上游，只能永久维护私有 fork |
+| 解码进 LINEAR 输出面（profile-independent + external memory） | 探针已跑通受支持格式；未宣告，需运行时探测，换驱动/目标平台必须重验 |
+| 推动驱动把 LINEAR 写进 format query 宣告 | 最干净的长期方案：不改规范、不改 HIP，只需 Mesa 侧补宣告 |
 | 改 `hipImportExternalMemory` 读 tiled | 走不通：tiling 在硬件寻址层，且 VK 布局不透明 |
 | 接受一次 tiled→linear 转换 | 当前实现：`vkCmdCopyImageToBuffer` 硬件拷贝，合规、可上游、无需自写 compute shader |
 
@@ -575,7 +578,7 @@ cuvidMapVideoFrame64
 
 ### 5.7 图像、DPB 与每帧解码
 
-- output 图像和 DPB 图像都必须是 `VK_IMAGE_TILING_OPTIMAL`（规范锁死）。
+- 按驱动宣告，output 图像和 DPB 图像都只用 `VK_IMAGE_TILING_OPTIMAL`。探针证明受支持格式的 output 面可以 LINEAR 直出（未宣告），但当前实现不依赖它：`ensure_session()` 仍查 format properties 并优先 OPTIMAL，LINEAR 只作为“只有 LINEAR 宣告时”的拷贝路径回退（见 §3.7）。
 - DPB 图只带 `VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR`，不混 `DST`；RADV VCN<5 要求 DPB 与 output 分离。
 - `pSetupReferenceSlot` 每帧必填，含 B 帧；非参考帧用临时 DPB slot，解码后回收。
 - DPB 槽位**升序分配**最小空闲槽，避免越过固件 `ref_frame_list[]` / 槽位掩码范围。
@@ -1127,6 +1130,7 @@ P0 只记录性能，不设通过阈值；进入二期前由产品和客户确�
 - **v1.38（2026-11-12）**：P0 双后端闭环（VAAPI 82/82、Vulkan 82/82，`verify_kernel_read` errors=0）；修复 Vulkan B 帧 UAF。
 - **v2.0（2026-11-12）**：四份方案文档整合；本文收敛为技术事实与证据。
 - **v3.0（2026-11-12）**：三份方案文档重切；本文定位为“技术事实与验证证据”，目标架构与实现设计移至[总体方案](CUDA兼容层总体方案.md)。
+- **v4.17（2026-11-19）**：修正“Vulkan 解码输出只能 OPTIMAL、规范锁死”的口径。`hip-decode-20261119` 探针证明用 `VK_KHR_video_maintenance_1` profile-independent 图像 + external memory 可把 H.264 8-bit 4:2:0（Baseline/Main/High）直接解码进 LINEAR 输出面并交给 HIP（96x96–4K、P/B/多 slice/crop 逐字节一致）；LINEAR 仍不在 format query 宣告内，兼容层当前实现不变，改直出需另立实现与运行时探测。新增强制 tiling 的 `CUVID_SHIM_VK_TILING` 只用于验证拷贝路径的 LINEAR 分支。
 - **v4.16（2026-11-17）**：依据 NPP 11.5 golden 和 NPP SASS 反推出 Lanczos 的 0.01 采样表 + 线性插值；探针 181,247/181,248 字节一致。确认 NPP 11.5 无 CUBIC2P 内核（-22），shim 默认对齐并提供 `NPP_SHIM_ENABLE_CUBIC2P=1` 开关；SUPER 与非整数比 FFmpeg 对照仍待完成。
 - **v4.15（2026-11-16）**：NPP Stage B 四个 kernel（cubic2p_bspline/catmullrom/b05c03、lanczos）实现并接入探针/FFmpeg 矩阵；NVIDIA Stage B golden 未生成，SUPER 未实现。
 - **v4.14（2026-11-16）**：新增 1080p/4K 正确性矩阵（8/8 通过）和 1/8 路 30 分钟长稳脚本；长稳结果待归档。

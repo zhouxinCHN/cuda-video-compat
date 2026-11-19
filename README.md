@@ -91,7 +91,7 @@ FFMPEG=$HOME/ffmpeg-7.1/ffmpeg ./run_ffmpeg_compare.sh
 
 | 维度 | VAAPI | Vulkan Video |
 |---|---|---|
-| 解码输出 | 显式 `DRM_FORMAT_MOD_LINEAR` | 规范要求 `VK_IMAGE_TILING_OPTIMAL` |
+| 解码输出 | 显式 `DRM_FORMAT_MOD_LINEAR` | 驱动 format query 只宣告 `VK_IMAGE_TILING_OPTIMAL`；LINEAR 直出已在 `hip-decode-20261119` 探针验证（未宣告，需运行时探测），当前实现仍走拷贝 |
 | 显存共享 | surface → dma-buf → HIP 导入，真零拷贝 | image → GPU `vkCmdCopyImageToBuffer` → 线性 buffer → HIP 导入 |
 | 额外拷贝 | `h264_nvdec` 零拷贝模式 0 次（需额外 surface；默认安全路径会被 FFmpeg 再拷贝）；`h264_cuvid` 有 FFmpeg 自身的 D2D 拷贝 | 每帧 1 次 GPU 内拷贝 |
 | 同步基线 | `vaSyncSurface` + HIP event | Vulkan semaphore/fence + HIP event |
