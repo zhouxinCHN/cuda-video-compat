@@ -388,14 +388,25 @@ const char *vk_query_status_str(uint32_t s) {
 
 // --- memory type helpers ---
 
+constexpr uint32_t kNoMemoryType = 0xffffffffu;
+
 uint32_t pick_memory_type(VkPhysicalDevice pd, uint32_t type_bits,
                           VkMemoryPropertyFlags wanted) {
     VkPhysicalDeviceMemoryProperties mp;
     vkGetPhysicalDeviceMemoryProperties(pd, &mp);
     for (uint32_t t = 0; t < mp.memoryTypeCount; t++)
-        if ((type_bits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & wanted))
+        if ((type_bits & (1u << t)) && (mp.memoryTypes[t].propertyFlags & wanted) == wanted)
             return t;
-    return 0;
+    return kNoMemoryType;
+}
+
+// Prefer `wanted`, but accept any type the allocation is allowed to use: some
+// drivers expose a single memory type, and failing here would reject a device
+// that can otherwise decode. Callers still fail when nothing fits.
+uint32_t pick_memory_type_or_any(VkPhysicalDevice pd, uint32_t type_bits,
+                                 VkMemoryPropertyFlags wanted) {
+    const uint32_t strict = pick_memory_type(pd, type_bits, wanted);
+    return strict != kNoMemoryType ? strict : pick_memory_type(pd, type_bits, 0);
 }
 
 } // namespace
@@ -409,14 +420,17 @@ VulkanH264Decoder::~VulkanH264Decoder() { reset(); }
 void VulkanH264Decoder::reset() {
     if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
-        if (copy_fence_) vkDestroyFence(device_, copy_fence_, nullptr);
         if (decode_query_) vkDestroyQueryPool(device_, decode_query_, nullptr);
-        if (decode_done_) vkDestroySemaphore(device_, decode_done_, nullptr);
-        if (copy_done_) vkDestroySemaphore(device_, copy_done_, nullptr);
         if (decode_pool_) vkDestroyCommandPool(device_, decode_pool_, nullptr);
         if (transfer_pool_) vkDestroyCommandPool(device_, transfer_pool_, nullptr);
-        if (bitstream_buf_) vkDestroyBuffer(device_, bitstream_buf_, nullptr);
-        if (bitstream_mem_) vkFreeMemory(device_, bitstream_mem_, nullptr);
+        for (auto &r : rings_) {
+            if (r.decode_done) vkDestroySemaphore(device_, r.decode_done, nullptr);
+            if (r.copy_fence) vkDestroyFence(device_, r.copy_fence, nullptr);
+            if (r.bitstream) vkDestroyBuffer(device_, r.bitstream, nullptr);
+            if (r.bitstream_mem) vkFreeMemory(device_, r.bitstream_mem, nullptr);
+        }
+        rings_.clear();
+        pending_.clear();
         for (auto &e : exports_) {
             if (e.fd >= 0) close(e.fd);
             if (e.buf) vkDestroyBuffer(device_, e.buf, nullptr);
@@ -451,17 +465,15 @@ void VulkanH264Decoder::reset() {
     session_params_ = VK_NULL_HANDLE;
     decode_pool_ = VK_NULL_HANDLE;
     transfer_pool_ = VK_NULL_HANDLE;
-    decode_cmd_ = VK_NULL_HANDLE;
-    transfer_cmd_ = VK_NULL_HANDLE;
-    decode_done_ = VK_NULL_HANDLE;
-    copy_done_ = VK_NULL_HANDLE;
-    copy_fence_ = VK_NULL_HANDLE;
+    cross_queue_ = false;
     decode_query_ = VK_NULL_HANDLE;
     query_supported_ = false;
     device_lost_ = false;
-    bitstream_buf_ = VK_NULL_HANDLE;
-    bitstream_mem_ = VK_NULL_HANDLE;
     bitstream_buf_size_ = 0;
+    pipeline_depth_ = 1;
+    output_tiling_ = VK_IMAGE_TILING_OPTIMAL;
+    dpb_tiling_ = VK_IMAGE_TILING_OPTIMAL;
+    dpb_distinct_ = false;
 
     outputs_.clear();
     dpb_images_.clear();
@@ -598,13 +610,19 @@ CUresult VulkanH264Decoder::ensure_session() {
     vkGetPhysicalDeviceQueueFamilyProperties(physical_device_, &qf_count, qfps.data());
     decode_qf_ = -1;
     transfer_qf_ = -1;
-    for (uint32_t i = 0; i < qf_count; i++) {
-        if (decode_qf_ < 0 && (qfps[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR)) decode_qf_ = i;
-        if (transfer_qf_ < 0 && (qfps[i].queueFlags & (VK_QUEUE_TRANSFER_BIT | VK_QUEUE_GRAPHICS_BIT)) &&
-            static_cast<int>(i) != decode_qf_) transfer_qf_ = i;
-    }
+    for (uint32_t i = 0; i < qf_count; i++)
+        if (qfps[i].queueFlags & VK_QUEUE_VIDEO_DECODE_BIT_KHR) { decode_qf_ = static_cast<int>(i); break; }
     if (decode_qf_ < 0) { dbg("FAIL: no video decode queue family"); reset(); return kNotSupported; }
-    if (transfer_qf_ < 0) transfer_qf_ = 0;
+    // Prefer the decode family when it can also copy: same-queue submissions are
+    // ordered, so no cross-queue semaphore is needed. Only pick a second family
+    // when the decode family cannot transfer (the usual RADV layout).
+    if (qfps[decode_qf_].queueFlags & (VK_QUEUE_TRANSFER_BIT | VK_QUEUE_GRAPHICS_BIT))
+        transfer_qf_ = decode_qf_;
+    for (uint32_t i = 0; i < qf_count && transfer_qf_ < 0; i++)
+        if (qfps[i].queueFlags & (VK_QUEUE_TRANSFER_BIT | VK_QUEUE_GRAPHICS_BIT))
+            transfer_qf_ = static_cast<int>(i);
+    if (transfer_qf_ < 0) { dbg("FAIL: no transfer/graphics queue family"); reset(); return kNotSupported; }
+    cross_queue_ = transfer_qf_ != decode_qf_;
 
     // --- 2b. does the decode queue family support video decode result queries? ---
     // 与 FFmpeg ff_vk_decode_init 的 nb_q 判定一致：只有 queryResultStatusSupport
@@ -645,12 +663,16 @@ CUresult VulkanH264Decoder::ensure_session() {
         qcis[0].queueFamilyIndex = static_cast<uint32_t>(decode_qf_);
         qcis[0].queueCount = 1;
         qcis[0].pQueuePriorities = &prio;
-        qcis[1] = qcis[0];
-        qcis[1].queueFamilyIndex = static_cast<uint32_t>(transfer_qf_);
+        uint32_t queue_count = 1;
+        if (cross_queue_) {
+            qcis[1] = qcis[0];
+            qcis[1].queueFamilyIndex = static_cast<uint32_t>(transfer_qf_);
+            queue_count = 2;
+        }
 
         VkDeviceCreateInfo dci = {};
         dci.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
-        dci.queueCreateInfoCount = 2;
+        dci.queueCreateInfoCount = queue_count;
         dci.pQueueCreateInfos = qcis;
         dci.enabledExtensionCount = static_cast<uint32_t>(dev_exts.size());
         dci.ppEnabledExtensionNames = dev_exts.data();
@@ -662,7 +684,10 @@ CUresult VulkanH264Decoder::ensure_session() {
         }
         if (!load_video_pfns(instance_, device_)) { dbg("FAIL: load_video_pfns"); reset(); return kNotSupported; }
         vkGetDeviceQueue(device_, decode_qf_, 0, &decode_queue_);
-        vkGetDeviceQueue(device_, transfer_qf_, 0, &transfer_queue_);
+        if (cross_queue_)
+            vkGetDeviceQueue(device_, transfer_qf_, 0, &transfer_queue_);
+        else
+            transfer_queue_ = decode_queue_;
     }
 
     // --- 4. parse SPS/PPS into Std (idempotent per rebuild) ---
@@ -732,21 +757,78 @@ CUresult VulkanH264Decoder::ensure_session() {
         ff_h264_ps_uninit(&ps); reset(); return kNotSupported;
     }
     max_dpb_slots_ = caps.maxDpbSlots ? caps.maxDpbSlots : 17;
-    max_active_refs_ = caps.maxActiveReferencePictures;
+    // A driver reporting 0 would make every reference submission invalid; the
+    // backend needs at least one active reference picture to exist at all.
+    max_active_refs_ = caps.maxActiveReferencePictures ? caps.maxActiveReferencePictures : 1;
     min_bitstream_align_ = caps.minBitstreamBufferSizeAlignment ? caps.minBitstreamBufferSizeAlignment : 128;
+
+    // This backend keeps one DPB image per slot and a separate client-visible
+    // output image per surface. A COINCIDE-only driver needs the output image to
+    // double as the reference picture (different slot bookkeeping) — reject it
+    // explicitly instead of submitting a decode the driver cannot honour.
+    dpb_distinct_ =
+        (dec_caps.flags & VK_VIDEO_DECODE_CAPABILITY_DPB_AND_OUTPUT_DISTINCT_BIT_KHR) != 0;
+    if (!dpb_distinct_) {
+        dbg("FAIL: driver does not support distinct DPB and output images");
+        ff_h264_ps_uninit(&ps); reset(); return kNotSupported;
+    }
+
+    // Ask the driver which image formats/tilings it accepts for the two video
+    // usages instead of hardcoding NV12+OPTIMAL. The copy-out path works for a
+    // LINEAR decode image too, so use whichever tiling is actually advertised.
+    if (!query_video_format(VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR, &output_tiling_) ||
+        !query_video_format(VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR, &dpb_tiling_)) {
+        dbg("FAIL: NV12 is not a supported decode-DST/DPB video format for this profile");
+        ff_h264_ps_uninit(&ps); reset(); return kNotSupported;
+    }
+    if (!query_buffers_exportable()) {
+        dbg("FAIL: driver cannot export TRANSFER_DST buffers as OPAQUE_FD");
+        ff_h264_ps_uninit(&ps); reset(); return kNotSupported;
+    }
+    // Verification knob: force a tiling the driver did not advertise, to run the
+    // LINEAR fallback end-to-end on hardware whose format query only lists
+    // OPTIMAL (the copy-out path itself is tiling-agnostic). Not for production.
+    if (const char *forced = std::getenv("CUVID_SHIM_VK_TILING")) {
+        const VkImageTiling advertised_output = output_tiling_;
+        const VkImageTiling advertised_dpb = dpb_tiling_;
+        const VkImageTiling t = std::strcmp(forced, "linear") == 0 ? VK_IMAGE_TILING_LINEAR
+                                                                   : VK_IMAGE_TILING_OPTIMAL;
+        output_tiling_ = t;
+        dpb_tiling_ = t;
+        if (std::getenv("CUVID_SHIM_DEBUG_VK"))
+            std::fprintf(stderr, "[vk] forced tiling=%d (driver advertised output=%d dpb=%d)\n",
+                         static_cast<int>(t), static_cast<int>(advertised_output),
+                         static_cast<int>(advertised_dpb));
+    }
+    if (std::getenv("CUVID_SHIM_DEBUG_VK"))
+        std::fprintf(stderr, "[vk] dpb/output distinct=%d output_tiling=%d dpb_tiling=%d\n",
+                     static_cast<int>(dpb_distinct_), static_cast<int>(output_tiling_),
+                     static_cast<int>(dpb_tiling_));
 
     VkPhysicalDeviceProperties pdp;
     vkGetPhysicalDeviceProperties(physical_device_, &pdp);
     pitch_align_ = pdp.limits.optimalBufferCopyRowPitchAlignment;
     if (pitch_align_ == 0) pitch_align_ = 256;
 
-    // --- 5b. decode result-status query pool (2 slots, ping-pong by frame) ---
+    // --- 5c. pipeline depth (frames decode() may leave in flight) ---
+    {
+        const char *env = std::getenv("CUVID_SHIM_PIPELINE_DEPTH");
+        unsigned long depth = env ? std::strtoul(env, nullptr, 10) : 4;
+        if (depth == 0) depth = 1;
+        const unsigned long max_surfaces = outputs_.empty() ? 1 : outputs_.size();
+        depth = std::min<unsigned long>({ depth, 8ul, std::max<unsigned long>(1, max_surfaces) });
+        pipeline_depth_ = static_cast<uint32_t>(depth);
+        if (std::getenv("CUVID_SHIM_DEBUG_VK"))
+            std::fprintf(stderr, "[vk] pipeline depth=%u\n", pipeline_depth_);
+    }
+
+    // --- 5d. decode result-status query pool (one slot per ring position) ---
     if (query_supported_ && decode_query_ == VK_NULL_HANDLE) {
         VkQueryPoolCreateInfo qpci = {};
         qpci.sType = VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO;
         qpci.pNext = &profile_info_;   // required for video result-status queries
         qpci.queryType = VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR;
-        qpci.queryCount = 2;
+        qpci.queryCount = pipeline_depth_;
         if (vkCreateQueryPool(device_, &qpci, nullptr, &decode_query_) != VK_SUCCESS) {
             decode_query_ = VK_NULL_HANDLE;
             query_supported_ = false;
@@ -787,9 +869,11 @@ CUresult VulkanH264Decoder::ensure_session() {
         VkMemoryAllocateInfo mai = {};
         mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         mai.allocationSize = mem_reqs[i].memoryRequirements.size;
-        mai.memoryTypeIndex = pick_memory_type(physical_device_, mem_reqs[i].memoryRequirements.memoryTypeBits,
-                                               VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        if (vkAllocateMemory(device_, &mai, nullptr, &session_mems[i]) != VK_SUCCESS) {
+        mai.memoryTypeIndex = pick_memory_type_or_any(physical_device_,
+                                                      mem_reqs[i].memoryRequirements.memoryTypeBits,
+                                                      VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mai.memoryTypeIndex == kNoMemoryType ||
+            vkAllocateMemory(device_, &mai, nullptr, &session_mems[i]) != VK_SUCCESS) {
             for (auto m : session_mems) if (m) vkFreeMemory(device_, m, nullptr);
             ff_h264_ps_uninit(&ps); reset(); return kNotSupported;
         }
@@ -874,7 +958,7 @@ CUresult VulkanH264Decoder::ensure_session() {
     prof_list.profileCount = 1;
     prof_list.pProfiles = &profile_info_;
 
-    auto create_image = [&](VkImageUsageFlags usage, ImageRes *r) -> bool {
+    auto create_image = [&](VkImageUsageFlags usage, VkImageTiling tiling, ImageRes *r) -> bool {
         VkImageCreateInfo ici = {};
         ici.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO;
         ici.pNext = &prof_list;
@@ -884,11 +968,13 @@ CUresult VulkanH264Decoder::ensure_session() {
         ici.mipLevels = 1;
         ici.arrayLayers = 1;
         ici.samples = VK_SAMPLE_COUNT_1_BIT;
-        ici.tiling = VK_IMAGE_TILING_OPTIMAL;
+        ici.tiling = tiling;
         ici.usage = usage;
-        ici.sharingMode = VK_SHARING_MODE_CONCURRENT;
-        ici.queueFamilyIndexCount = 2;
-        ici.pQueueFamilyIndices = qf_indices;
+        // CONCURRENT sharing requires distinct queue families; when the decode
+        // family can also transfer there is only one family to name.
+        ici.sharingMode = cross_queue_ ? VK_SHARING_MODE_CONCURRENT : VK_SHARING_MODE_EXCLUSIVE;
+        ici.queueFamilyIndexCount = cross_queue_ ? 2 : 0;
+        ici.pQueueFamilyIndices = cross_queue_ ? qf_indices : nullptr;
         ici.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED;
         if (vkCreateImage(device_, &ici, nullptr, &r->image) != VK_SUCCESS) return false;
         VkMemoryRequirements mr;
@@ -896,8 +982,10 @@ CUresult VulkanH264Decoder::ensure_session() {
         VkMemoryAllocateInfo mai = {};
         mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         mai.allocationSize = mr.size;
-        mai.memoryTypeIndex = pick_memory_type(physical_device_, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        if (vkAllocateMemory(device_, &mai, nullptr, &r->mem) != VK_SUCCESS) return false;
+        mai.memoryTypeIndex = pick_memory_type_or_any(physical_device_, mr.memoryTypeBits,
+                                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mai.memoryTypeIndex == kNoMemoryType ||
+            vkAllocateMemory(device_, &mai, nullptr, &r->mem) != VK_SUCCESS) return false;
         vkBindImageMemory(device_, r->image, r->mem, 0);
         VkImageViewCreateInfo vci = {};
         vci.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO;
@@ -911,7 +999,8 @@ CUresult VulkanH264Decoder::ensure_session() {
     };
 
     for (auto &o : outputs_) {
-        if (!create_image(VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR | VK_IMAGE_USAGE_TRANSFER_SRC_BIT, &o)) {
+        if (!create_image(VK_IMAGE_USAGE_VIDEO_DECODE_DST_BIT_KHR | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+                          output_tiling_, &o)) {
             reset(); return kNotSupported;
         }
     }
@@ -920,7 +1009,7 @@ CUresult VulkanH264Decoder::ensure_session() {
         // RADV VCN<5: DPB images must be DPB-only, not DST (radv_video.c:1184).
         // TRANSFER_SRC 只是可选的读写用途（不是 DST），用于把 DPB 图内容导出。
         if (!create_image(VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
-                          &dpb_images_[i])) {
+                          dpb_tiling_, &dpb_images_[i])) {
             reset(); return kNotSupported;
         }
     }
@@ -941,64 +1030,79 @@ CUresult VulkanH264Decoder::ensure_session() {
         if (vkCreateBuffer(device_, &bci, nullptr, &e.buf) != VK_SUCCESS) { reset(); return kNotSupported; }
         VkMemoryRequirements mr;
         vkGetBufferMemoryRequirements(device_, e.buf, &mr);
+        // Dedicated allocation: some drivers only export dedicated memory, and
+        // nothing else is ever bound to this buffer anyway.
+        VkMemoryDedicatedAllocateInfo dedicated = {};
+        dedicated.sType = VK_STRUCTURE_TYPE_MEMORY_DEDICATED_ALLOCATE_INFO;
+        dedicated.buffer = e.buf;
         VkExportMemoryAllocateInfo export_info = {};
         export_info.sType = VK_STRUCTURE_TYPE_EXPORT_MEMORY_ALLOCATE_INFO;
+        export_info.pNext = &dedicated;
         export_info.handleTypes = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
         VkMemoryAllocateInfo mai = {};
         mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         mai.pNext = &export_info;
         mai.allocationSize = mr.size;
-        mai.memoryTypeIndex = pick_memory_type(physical_device_, mr.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
-        if (vkAllocateMemory(device_, &mai, nullptr, &e.mem) != VK_SUCCESS) { reset(); return kNotSupported; }
+        mai.memoryTypeIndex = pick_memory_type_or_any(physical_device_, mr.memoryTypeBits,
+                                                     VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+        if (mai.memoryTypeIndex == kNoMemoryType ||
+            vkAllocateMemory(device_, &mai, nullptr, &e.mem) != VK_SUCCESS) { reset(); return kNotSupported; }
         vkBindBufferMemory(device_, e.buf, e.mem, 0);
         e.pitch = pitch;
         e.size = export_size;
     }
 
-    // --- 11. bitstream buffer (single, reused) ---
+    // --- 11. per-ring bitstream buffers, command buffers and sync objects ---
+    // decode() records one frame per ring slot and submits without waiting, so
+    // nothing in the ring may be shared between in-flight frames.
     bitstream_buf_size_ = (coded_width_ * coded_height_ * 3 / 2) + 4 + min_bitstream_align_;  // generous upper bound
-    {
+    VkCommandPoolCreateInfo cpci = {};
+    cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    cpci.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;   // rings reset single buffers
+    cpci.queueFamilyIndex = static_cast<uint32_t>(decode_qf_);
+    if (vkCreateCommandPool(device_, &cpci, nullptr, &decode_pool_) != VK_SUCCESS) { reset(); return kNotSupported; }
+    cpci.queueFamilyIndex = static_cast<uint32_t>(transfer_qf_);
+    if (vkCreateCommandPool(device_, &cpci, nullptr, &transfer_pool_) != VK_SUCCESS) { reset(); return kNotSupported; }
+
+    VkSemaphoreCreateInfo sci = {};
+    sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+    VkFenceCreateInfo fci = {};
+    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+
+    rings_.assign(pipeline_depth_, FrameRing{});
+    pending_.assign(outputs_.size(), PendingFrame{});
+    for (auto &r : rings_) {
         VkBufferCreateInfo bci = {};
         bci.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
         bci.size = bitstream_buf_size_;
         bci.usage = VK_BUFFER_USAGE_VIDEO_DECODE_SRC_BIT_KHR;
         bci.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
-        if (vkCreateBuffer(device_, &bci, nullptr, &bitstream_buf_) != VK_SUCCESS) { reset(); return kNotSupported; }
+        if (vkCreateBuffer(device_, &bci, nullptr, &r.bitstream) != VK_SUCCESS) { reset(); return kNotSupported; }
         VkMemoryRequirements mr;
-        vkGetBufferMemoryRequirements(device_, bitstream_buf_, &mr);
+        vkGetBufferMemoryRequirements(device_, r.bitstream, &mr);
         VkMemoryAllocateInfo mai = {};
         mai.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
         mai.allocationSize = mr.size;
+        // Mapped and written on the CPU for every frame: coherent host-visible
+        // memory is required here, no silent fallback.
         mai.memoryTypeIndex = pick_memory_type(physical_device_, mr.memoryTypeBits,
                                                VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
-        if (vkAllocateMemory(device_, &mai, nullptr, &bitstream_mem_) != VK_SUCCESS) { reset(); return kNotSupported; }
-        vkBindBufferMemory(device_, bitstream_buf_, bitstream_mem_, 0);
+        if (mai.memoryTypeIndex == kNoMemoryType ||
+            vkAllocateMemory(device_, &mai, nullptr, &r.bitstream_mem) != VK_SUCCESS) { reset(); return kNotSupported; }
+        vkBindBufferMemory(device_, r.bitstream, r.bitstream_mem, 0);
+
+        if (vkCreateSemaphore(device_, &sci, nullptr, &r.decode_done) != VK_SUCCESS) { reset(); return kNotSupported; }
+        if (vkCreateFence(device_, &fci, nullptr, &r.copy_fence) != VK_SUCCESS) { reset(); return kNotSupported; }
+
+        VkCommandBufferAllocateInfo cbai = {};
+        cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+        cbai.commandPool = decode_pool_;
+        cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+        cbai.commandBufferCount = 1;
+        if (vkAllocateCommandBuffers(device_, &cbai, &r.decode_cmd) != VK_SUCCESS) { reset(); return kNotSupported; }
+        cbai.commandPool = transfer_pool_;
+        if (vkAllocateCommandBuffers(device_, &cbai, &r.transfer_cmd) != VK_SUCCESS) { reset(); return kNotSupported; }
     }
-
-    // --- 12. sync + command pools ---
-    VkSemaphoreCreateInfo sci = {};
-    sci.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
-    vkCreateSemaphore(device_, &sci, nullptr, &decode_done_);
-    vkCreateSemaphore(device_, &sci, nullptr, &copy_done_);
-    VkFenceCreateInfo fci = {};
-    fci.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
-    vkCreateFence(device_, &fci, nullptr, &copy_fence_);
-
-    VkCommandPoolCreateInfo cpci = {};
-    cpci.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-    cpci.queueFamilyIndex = static_cast<uint32_t>(decode_qf_);
-    vkCreateCommandPool(device_, &cpci, nullptr, &decode_pool_);
-    cpci.queueFamilyIndex = static_cast<uint32_t>(transfer_qf_);
-    vkCreateCommandPool(device_, &cpci, nullptr, &transfer_pool_);
-
-    VkCommandBufferAllocateInfo cbai = {};
-    cbai.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-    cbai.commandPool = decode_pool_;
-    cbai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-    cbai.commandBufferCount = 1;
-    vkAllocateCommandBuffers(device_, &cbai, &decode_cmd_);
-    cbai.commandPool = transfer_pool_;
-    vkAllocateCommandBuffers(device_, &cbai, &transfer_cmd_);
 
     // --- 13. one-time VCN session init ---
     // radv 在 vkCreateVideoSession 时只建了 session 对象，真正给 VCN 固件发
@@ -1018,17 +1122,19 @@ CUresult VulkanH264Decoder::ensure_session() {
         VkVideoEndCodingInfoKHR r_end = {};
         r_end.sType = VK_STRUCTURE_TYPE_VIDEO_END_CODING_INFO_KHR;
 
+        VkCommandBuffer cmd = rings_[0].decode_cmd;
         VkCommandBufferBeginInfo cbbi = {};
         cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        vkBeginCommandBuffer(decode_cmd_, &cbbi);
-        pvkCmdBeginVideoCodingKHR(decode_cmd_, &r_begin);
-        pvkCmdControlVideoCodingKHR(decode_cmd_, &r_ctrl);
-        pvkCmdEndVideoCodingKHR(decode_cmd_, &r_end);
-        vkEndCommandBuffer(decode_cmd_);
+        vkResetCommandBuffer(cmd, 0);
+        vkBeginCommandBuffer(cmd, &cbbi);
+        pvkCmdBeginVideoCodingKHR(cmd, &r_begin);
+        pvkCmdControlVideoCodingKHR(cmd, &r_ctrl);
+        pvkCmdEndVideoCodingKHR(cmd, &r_end);
+        vkEndCommandBuffer(cmd);
 
         VkCommandBufferSubmitInfo cb = {};
         cb.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        cb.commandBuffer = decode_cmd_;
+        cb.commandBuffer = cmd;
         VkSubmitInfo2 si2 = {};
         si2.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
         si2.commandBufferInfoCount = 1;
@@ -1257,10 +1363,17 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     setup_slot_info.slotIndex = setup_slot;
     setup_slot_info.pPictureResource = &setup_res;
 
-    // --- 6. write the Annex-B access unit into the bitstream buffer ---
+    // --- 6. reserve a ring slot and write the Annex-B access unit ---
     // slice_buf holds every slice NAL of the picture with start codes (the
     // CUVID parser assembles multi-slice access units; nvdec hands one in
     // already). Upload it as a whole and describe each slice by its offset.
+    int ring_index = -1;
+    CUresult acquired = acquire_ring(picture.CurrPicIdx, &ring_index);
+    if (acquired != CUDA_SUCCESS) {
+        ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps);
+        return acquired;
+    }
+    FrameRing &ring = rings_[ring_index];
     if (slice_buf.size() > bitstream_buf_size_) {
         dbg("access unit does not fit in the bitstream buffer");
         ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps);
@@ -1268,10 +1381,10 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     }
     {
         void *p = nullptr;
-        vkMapMemory(device_, bitstream_mem_, 0, bitstream_buf_size_, 0, &p);
+        vkMapMemory(device_, ring.bitstream_mem, 0, bitstream_buf_size_, 0, &p);
         std::memset(p, 0, bitstream_buf_size_);
         std::memcpy(p, slice_buf.data(), slice_buf.size());
-        vkUnmapMemory(device_, bitstream_mem_);
+        vkUnmapMemory(device_, ring.bitstream_mem);
     }
 
     std::vector<uint32_t> slice_offsets;
@@ -1311,13 +1424,14 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
 
     // --- 8. record decode command buffer ---
     ImageRes &out = outputs_[picture.CurrPicIdx];
-    const uint32_t qidx = decode_order_ % 2;
-    vkResetCommandPool(device_, decode_pool_, 0);
+    const uint32_t qidx = static_cast<uint32_t>(ring_index);   // one query per ring slot
+    VkCommandBuffer cmd = ring.decode_cmd;
     VkCommandBufferBeginInfo cbbi = {};
     cbbi.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-    vkBeginCommandBuffer(decode_cmd_, &cbbi);
+    vkResetCommandBuffer(cmd, 0);
+    vkBeginCommandBuffer(cmd, &cbbi);
     // Query reset 必须在 video coding scope 之外（FFmpeg 在 ff_vk_exec_start 里做同一件事）。
-    if (decode_query_ != VK_NULL_HANDLE) vkCmdResetQueryPool(decode_cmd_, decode_query_, qidx, 1);
+    if (decode_query_ != VK_NULL_HANDLE) vkCmdResetQueryPool(cmd, decode_query_, qidx, 1);
 
     {   // output -> VIDEO_DECODE_DST
         VkImageMemoryBarrier2 b = {};
@@ -1336,7 +1450,7 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         di.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         di.imageMemoryBarrierCount = 1;
         di.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(decode_cmd_, &di);
+        vkCmdPipelineBarrier2(cmd, &di);
         out.layout = VK_IMAGE_LAYOUT_VIDEO_DECODE_DST_KHR;
     }
     {   // setup slot (+ all reference slots) -> VIDEO_DECODE_DPB
@@ -1362,7 +1476,7 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
             di.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
             di.imageMemoryBarrierCount = 1;
             di.pImageMemoryBarriers = &b;
-            vkCmdPipelineBarrier2(decode_cmd_, &di);
+            vkCmdPipelineBarrier2(cmd, &di);
             im.layout = VK_IMAGE_LAYOUT_VIDEO_DECODE_DPB_KHR;
             dpb_layout_init_[slot] = 1;
         };
@@ -1389,10 +1503,10 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     begin_refs.push_back(inactive_setup);
     begin.referenceSlotCount = static_cast<uint32_t>(begin_refs.size());
     begin.pReferenceSlots = begin_refs.data();
-    pvkCmdBeginVideoCodingKHR(decode_cmd_, &begin);
+    pvkCmdBeginVideoCodingKHR(cmd, &begin);
     // 解码结果状态 query 必须在 video coding scope 内 begin/end
     // （FFmpeg vulkan_decode.c:528-535 同样的位置）。
-    if (decode_query_ != VK_NULL_HANDLE) vkCmdBeginQuery(decode_cmd_, decode_query_, qidx, 0);
+    if (decode_query_ != VK_NULL_HANDLE) vkCmdBeginQuery(cmd, decode_query_, qidx, 0);
 
     VkVideoDecodeH264PictureInfoKHR h264_pic_info = {};
     h264_pic_info.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_H264_PICTURE_INFO_KHR;
@@ -1403,7 +1517,7 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     VkVideoDecodeInfoKHR decode_info = {};
     decode_info.sType = VK_STRUCTURE_TYPE_VIDEO_DECODE_INFO_KHR;
     decode_info.pNext = &h264_pic_info;
-    decode_info.srcBuffer = bitstream_buf_;
+    decode_info.srcBuffer = ring.bitstream;
     decode_info.srcBufferOffset = 0;
     VkDeviceSize src_range = slice_buf.size();
     src_range = (src_range + min_bitstream_align_ - 1) / min_bitstream_align_ * min_bitstream_align_;
@@ -1415,41 +1529,42 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     decode_info.pSetupReferenceSlot = &setup_slot_info;
     decode_info.referenceSlotCount = static_cast<uint32_t>(ref_slots.size());
     decode_info.pReferenceSlots = ref_slots.data();
-    pvkCmdDecodeVideoKHR(decode_cmd_, &decode_info);
-    if (decode_query_ != VK_NULL_HANDLE) vkCmdEndQuery(decode_cmd_, decode_query_, qidx);
+    pvkCmdDecodeVideoKHR(cmd, &decode_info);
+    if (decode_query_ != VK_NULL_HANDLE) vkCmdEndQuery(cmd, decode_query_, qidx);
 
     VkVideoEndCodingInfoKHR end = {};
     end.sType = VK_STRUCTURE_TYPE_VIDEO_END_CODING_INFO_KHR;
-    pvkCmdEndVideoCodingKHR(decode_cmd_, &end);
-    vkEndCommandBuffer(decode_cmd_);
+    pvkCmdEndVideoCodingKHR(cmd, &end);
+    vkEndCommandBuffer(cmd);
 
-    // --- 9. submit decode (wait copyDoneSem for output WAR, signal decodeDoneSem) ---
+    // --- 9. submit decode (no host wait; map_frame() joins the frame) ---
     {
-        VkSemaphoreSubmitInfo wait_sem = {};
-        wait_sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        wait_sem.semaphore = copy_done_;
-        wait_sem.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         VkSemaphoreSubmitInfo sig_sem = {};
         sig_sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        sig_sem.semaphore = decode_done_;
+        sig_sem.semaphore = ring.decode_done;
         sig_sem.stageMask = VK_PIPELINE_STAGE_2_VIDEO_DECODE_BIT_KHR;
         VkCommandBufferSubmitInfo cb = {};
         cb.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        cb.commandBuffer = decode_cmd_;
+        cb.commandBuffer = cmd;
         VkSubmitInfo2 si2 = {};
         si2.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        si2.waitSemaphoreInfoCount = (decode_order_ == 0 || nocopy) ? 0 : 1;
-        si2.pWaitSemaphoreInfos = &wait_sem;
+        // Only a separate transfer queue needs the decode_done bridge; on one
+        // queue family the two submissions are ordered by the queue itself.
+        si2.signalSemaphoreInfoCount = (!nocopy && cross_queue_) ? 1 : 0;
+        si2.pSignalSemaphoreInfos = &sig_sem;
         si2.commandBufferInfoCount = 1;
         si2.pCommandBufferInfos = &cb;
-        si2.signalSemaphoreInfoCount = nocopy ? 0 : 1;
-        si2.pSignalSemaphoreInfos = &sig_sem;
-        const VkResult sr = vkQueueSubmit2(decode_queue_, 1, &si2, nocopy ? copy_fence_ : VK_NULL_HANDLE);
+        // nocopy is a diagnostic mode with no transfer to join later, so it
+        // keeps the synchronous shape and waits on its own fence below.
+        const VkResult sr = vkQueueSubmit2(decode_queue_, 1, &si2,
+                                           nocopy ? ring.copy_fence : VK_NULL_HANDLE);
         if (sr != VK_SUCCESS) {
             std::fprintf(stderr, "[vk-decode] FATAL frame=%u decode queue submit=%s (idx=%d fn=%d poc=%d type=%d)\n",
                          decode_order_, vk_result_str(sr), picture.CurrPicIdx, si.frame_num,
                          field_poc[0], si.slice_type_nos);
-            if (sr == VK_ERROR_DEVICE_LOST) device_lost_ = true;
+            // The ring may hold a half-submitted frame; no further submission on
+            // this device can be trusted (fail fast, same as a fence timeout).
+            device_lost_ = true;
             ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_UNKNOWN;
         }
     }
@@ -1458,8 +1573,9 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     ExportRes &exp = exports_[picture.CurrPicIdx];
     ImageRes &copy_src = out;
     if (!nocopy) {
-    vkResetCommandPool(device_, transfer_pool_, 0);
-    vkBeginCommandBuffer(transfer_cmd_, &cbbi);
+    VkCommandBuffer xfer = ring.transfer_cmd;
+    vkResetCommandBuffer(xfer, 0);
+    vkBeginCommandBuffer(xfer, &cbbi);
     {
         VkImageMemoryBarrier2 b = {};
         b.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2;
@@ -1477,7 +1593,7 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         di.sType = VK_STRUCTURE_TYPE_DEPENDENCY_INFO;
         di.imageMemoryBarrierCount = 1;
         di.pImageMemoryBarriers = &b;
-        vkCmdPipelineBarrier2(transfer_cmd_, &di);
+        vkCmdPipelineBarrier2(xfer, &di);
     }
     VkBufferImageCopy regions[2] = {};
     regions[0].bufferOffset = 0;
@@ -1496,41 +1612,45 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     regions[1].bufferImageHeight = H / 2;
     regions[1].imageSubresource = { VK_IMAGE_ASPECT_PLANE_1_BIT, 0, 0, 1 };
     regions[1].imageExtent = { W / 2, H / 2, 1 };
-    vkCmdCopyImageToBuffer(transfer_cmd_, copy_src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, exp.buf, 2, regions);
+    vkCmdCopyImageToBuffer(xfer, copy_src.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, exp.buf, 2, regions);
     copy_src.layout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL;
-    vkEndCommandBuffer(transfer_cmd_);
+    vkEndCommandBuffer(xfer);
 
     {
         VkSemaphoreSubmitInfo wait_sem = {};
         wait_sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        wait_sem.semaphore = decode_done_;
+        wait_sem.semaphore = ring.decode_done;
         wait_sem.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
-        VkSemaphoreSubmitInfo sig_sem = {};
-        sig_sem.sType = VK_STRUCTURE_TYPE_SEMAPHORE_SUBMIT_INFO;
-        sig_sem.semaphore = copy_done_;
-        sig_sem.stageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
         VkCommandBufferSubmitInfo cb = {};
         cb.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO;
-        cb.commandBuffer = transfer_cmd_;
+        cb.commandBuffer = xfer;
         VkSubmitInfo2 si2 = {};
         si2.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO_2;
-        si2.waitSemaphoreInfoCount = 1;
+        si2.waitSemaphoreInfoCount = cross_queue_ ? 1 : 0;
         si2.pWaitSemaphoreInfos = &wait_sem;
         si2.commandBufferInfoCount = 1;
         si2.pCommandBufferInfos = &cb;
-        si2.signalSemaphoreInfoCount = 1;
-        si2.pSignalSemaphoreInfos = &sig_sem;
-        if (vkQueueSubmit2(transfer_queue_, 1, &si2, copy_fence_) != VK_SUCCESS) {
-            dbg("transfer queue submit failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_UNKNOWN;
+        if (vkQueueSubmit2(transfer_queue_, 1, &si2, ring.copy_fence) != VK_SUCCESS) {
+            dbg("transfer queue submit failed");
+            device_lost_ = true;   // decode is already in flight; state is unrecoverable
+            ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_UNKNOWN;
         }
     }
+    // The frame stays in flight until map_frame() (or a ring/surface reuse)
+    // joins it: that is where the fence wait, the decode status check and the
+    // fd export now happen.
+    pending_[picture.CurrPicIdx].active = true;
+    pending_[picture.CurrPicIdx].ring = ring_index;
+    ring.owner = picture.CurrPicIdx;
     }   // !nocopy
-    // --- 10b. wait for the transfer queue (which waits on decode) + per-frame status ---
-    // 以前这里用 UINT64_MAX 且不检查返回值：GPU 挂死时只会看到下一帧 submit 失败，
-    // 无法判断到底是哪一帧出错。改成带超时 + 检查返回值 + 读解码 query 状态。
-    {
+
+    if (nocopy) {
+        // Diagnostic mode: join immediately (there is no transfer to wait on
+        // later). The fd is still exported so map() keeps working; the buffer
+        // simply never receives the copy, which is what makes this mode a
+        // "decode without the copy path" probe.
         const uint64_t timeout_ns = 30ull * 1000 * 1000 * 1000;
-        const VkResult wr = vkWaitForFences(device_, 1, &copy_fence_, VK_TRUE, timeout_ns);
+        const VkResult wr = vkWaitForFences(device_, 1, &ring.copy_fence, VK_TRUE, timeout_ns);
         if (wr != VK_SUCCESS) {
             std::fprintf(stderr,
                          "[vk-decode] FATAL frame=%u vkWaitForFences=%s "
@@ -1542,39 +1662,13 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
             ff_h264_ps_uninit(&ps);
             return CUDA_ERROR_UNKNOWN;
         }
-        vkResetFences(device_, 1, &copy_fence_);
-    }
-
-    if (decode_query_ != VK_NULL_HANDLE) {
-        uint32_t status = 0;
-        const VkResult qr = vkGetQueryPoolResults(device_, decode_query_, qidx, 1,
-                                                  sizeof(status), &status, sizeof(status),
-                                                  VK_QUERY_RESULT_WAIT_BIT |
-                                                      VK_QUERY_RESULT_WITH_STATUS_BIT_KHR);
-        const bool complete = (qr == VK_SUCCESS) &&
-                              (static_cast<int32_t>(status) == VK_QUERY_RESULT_STATUS_COMPLETE_KHR);
-        if (!complete || std::getenv("CUVID_SHIM_DEBUG_VK")) {
-            std::fprintf(stderr, "[vk-decode] frame=%u status=%s (%d) vkGetQueryPoolResults=%s\n",
-                         decode_order_, (qr == VK_SUCCESS) ? vk_query_status_str(status) : "n/a",
-                         static_cast<int>(static_cast<int32_t>(status)), vk_result_str(qr));
-        }
-        if (!complete) {
+        vkResetFences(device_, 1, &ring.copy_fence);
+        CUresult qr = read_decode_query(ring_index);
+        if (qr == CUDA_SUCCESS) qr = export_frame_fd(picture.CurrPicIdx);
+        if (qr != CUDA_SUCCESS) {
             ff_h2645_packet_uninit(&slice_pkt);
             ff_h264_ps_uninit(&ps);
-            return CUDA_ERROR_UNKNOWN;
-        }
-    }
-
-    // --- 11. export the fd for map_frame() to import ---
-    if (exp.fd >= 0) close(exp.fd);
-    exp.fd = -1;
-    {
-        VkMemoryGetFdInfoKHR fd_info = {};
-        fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
-        fd_info.memory = exp.mem;
-        fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
-        if (pvkGetMemoryFdKHR(device_, &fd_info, &exp.fd) != VK_SUCCESS || exp.fd < 0) {
-            dbg("get memory fd failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_UNKNOWN;
+            return qr;
         }
     }
 
@@ -1620,14 +1714,178 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
 }
 
 // ===========================================================================
+// frame ring / capability helpers
+// ===========================================================================
+
+CUresult VulkanH264Decoder::read_decode_query(int ring_index) {
+    if (decode_query_ == VK_NULL_HANDLE) return CUDA_SUCCESS;
+    uint32_t status = 0;
+    const VkResult qr = vkGetQueryPoolResults(device_, decode_query_,
+                                              static_cast<uint32_t>(ring_index), 1,
+                                              sizeof(status), &status, sizeof(status),
+                                              VK_QUERY_RESULT_WAIT_BIT |
+                                                  VK_QUERY_RESULT_WITH_STATUS_BIT_KHR);
+    const bool complete = (qr == VK_SUCCESS) &&
+                          (static_cast<int32_t>(status) == VK_QUERY_RESULT_STATUS_COMPLETE_KHR);
+    if (!complete || std::getenv("CUVID_SHIM_DEBUG_VK")) {
+        std::fprintf(stderr, "[vk-decode] ring=%d status=%s (%d) vkGetQueryPoolResults=%s\n",
+                     ring_index, (qr == VK_SUCCESS) ? vk_query_status_str(status) : "n/a",
+                     static_cast<int>(static_cast<int32_t>(status)), vk_result_str(qr));
+    }
+    return complete ? CUDA_SUCCESS : CUDA_ERROR_UNKNOWN;
+}
+
+CUresult VulkanH264Decoder::finish_frame(int picture_index) {
+    if (pending_.empty()) return CUDA_SUCCESS;   // session never built
+    if (picture_index < 0 || static_cast<std::size_t>(picture_index) >= pending_.size())
+        return CUDA_ERROR_INVALID_VALUE;
+    PendingFrame &p = pending_[picture_index];
+    if (!p.active) return CUDA_SUCCESS;
+    FrameRing &ring = rings_[p.ring];
+    ExportRes &exp = exports_[picture_index];
+
+    // 30 s covers any real decode; a timeout means the firmware is wedged and no
+    // further submission on this device can be trusted (same policy as before,
+    // only the wait moved from decode() to here).
+    const uint64_t timeout_ns = 30ull * 1000 * 1000 * 1000;
+    const VkResult wr = vkWaitForFences(device_, 1, &ring.copy_fence, VK_TRUE, timeout_ns);
+    CUresult rc = CUDA_SUCCESS;
+    if (wr != VK_SUCCESS) {
+        std::fprintf(stderr, "[vk-decode] FATAL pic=%d ring=%d vkWaitForFences=%s\n",
+                     picture_index, p.ring, vk_result_str(wr));
+        device_lost_ = true;
+        rc = CUDA_ERROR_UNKNOWN;
+    } else {
+        vkResetFences(device_, 1, &ring.copy_fence);
+        // The copy that fills the buffer has completed: the per-frame decode
+        // status and the exported fd are only meaningful from here on.
+        rc = read_decode_query(p.ring);
+        if (rc == CUDA_SUCCESS) rc = export_frame_fd(picture_index);
+    }
+
+    // Whatever happened, the frame is no longer in flight: clear the records so
+    // the surface and ring slot can be reused (or reported failed) cleanly.
+    p.active = false;
+    p.ring = -1;
+    ring.owner = -1;
+    if (rc != CUDA_SUCCESS && exp.fd >= 0) {
+        close(exp.fd);
+        exp.fd = -1;
+    }
+    return rc;
+}
+
+CUresult VulkanH264Decoder::export_frame_fd(int picture_index) {
+    if (picture_index < 0 || static_cast<std::size_t>(picture_index) >= exports_.size())
+        return CUDA_ERROR_INVALID_VALUE;
+    ExportRes &exp = exports_[picture_index];
+    if (exp.fd >= 0) close(exp.fd);
+    exp.fd = -1;
+    VkMemoryGetFdInfoKHR fd_info = {};
+    fd_info.sType = VK_STRUCTURE_TYPE_MEMORY_GET_FD_INFO_KHR;
+    fd_info.memory = exp.mem;
+    fd_info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    if (pvkGetMemoryFdKHR(device_, &fd_info, &exp.fd) != VK_SUCCESS || exp.fd < 0) {
+        exp.fd = -1;
+        return CUDA_ERROR_UNKNOWN;
+    }
+    return CUDA_SUCCESS;
+}
+
+CUresult VulkanH264Decoder::acquire_ring(int picture_index, int *ring_out) {
+    if (!ring_out || rings_.empty()) return CUDA_ERROR_UNKNOWN;
+
+    auto find_free = [&]() -> int {
+        for (std::size_t i = 0; i < rings_.size(); i++)
+            if (rings_[i].owner < 0) return static_cast<int>(i);
+        return -1;
+    };
+
+    // The surface still has an in-flight frame: the client is decoding over it
+    // without mapping that frame, so join it before reusing the surface.
+    CUresult r = finish_frame(picture_index);
+    if (r != CUDA_SUCCESS) return r;
+
+    int ring = find_free();
+    if (ring < 0) {
+        // Pipeline saturated: the client decoded further ahead than the ring
+        // depth. Join every pending frame and retry; this is the only path in
+        // decode() that can still block.
+        for (std::size_t i = 0; i < pending_.size(); i++) {
+            if (!pending_[i].active) continue;
+            r = finish_frame(static_cast<int>(i));
+            if (r != CUDA_SUCCESS) return r;
+        }
+        ring = find_free();
+    }
+    if (ring < 0) return CUDA_ERROR_UNKNOWN;
+    *ring_out = ring;
+    return CUDA_SUCCESS;
+}
+
+bool VulkanH264Decoder::query_video_format(VkImageUsageFlags usage, VkImageTiling *tiling) {
+    VkVideoProfileListInfoKHR profiles = {};
+    profiles.sType = VK_STRUCTURE_TYPE_VIDEO_PROFILE_LIST_INFO_KHR;
+    profiles.profileCount = 1;
+    profiles.pProfiles = &profile_info_;
+
+    VkPhysicalDeviceVideoFormatInfoKHR query = {};
+    query.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VIDEO_FORMAT_INFO_KHR;
+    query.pNext = &profiles;
+    query.imageUsage = usage;
+
+    uint32_t count = 0;
+    if (pvkGetPhysicalDeviceVideoFormatPropertiesKHR(physical_device_, &query, &count, nullptr) != VK_SUCCESS ||
+        count == 0)
+        return false;
+    std::vector<VkVideoFormatPropertiesKHR> formats(count);
+    for (auto &f : formats) f = VkVideoFormatPropertiesKHR{VK_STRUCTURE_TYPE_VIDEO_FORMAT_PROPERTIES_KHR};
+    if (pvkGetPhysicalDeviceVideoFormatPropertiesKHR(physical_device_, &query, &count, formats.data()) != VK_SUCCESS)
+        return false;
+
+    bool optimal = false;
+    bool linear = false;
+    for (uint32_t i = 0; i < count; i++) {
+        if (formats[i].format != VK_FORMAT_G8_B8R8_2PLANE_420_UNORM) continue;
+#ifdef VK_KHR_VIDEO_MAINTENANCE_1_EXTENSION_NAME
+        // imageUsageFlags only exists in headers that carry video_maintenance1.
+        if ((formats[i].imageUsageFlags & usage) != usage) continue;
+#endif
+        if (formats[i].imageTiling == VK_IMAGE_TILING_OPTIMAL) optimal = true;
+        if (formats[i].imageTiling == VK_IMAGE_TILING_LINEAR) linear = true;
+    }
+    // Keep OPTIMAL when offered (current验证基线); a LINEAR-only driver still
+    // works because the export copy reads from the image either way.
+    if (optimal) { *tiling = VK_IMAGE_TILING_OPTIMAL; return true; }
+    if (linear) { *tiling = VK_IMAGE_TILING_LINEAR; return true; }
+    return false;
+}
+
+bool VulkanH264Decoder::query_buffers_exportable() {
+    VkPhysicalDeviceExternalBufferInfo info = {};
+    info.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_EXTERNAL_BUFFER_INFO;
+    info.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
+    info.handleType = VK_EXTERNAL_MEMORY_HANDLE_TYPE_OPAQUE_FD_BIT;
+    VkExternalBufferProperties props = {};
+    props.sType = VK_STRUCTURE_TYPE_EXTERNAL_BUFFER_PROPERTIES;
+    vkGetPhysicalDeviceExternalBufferProperties(physical_device_, &info, &props);
+    return (props.externalMemoryProperties.externalMemoryFeatures &
+            VK_EXTERNAL_MEMORY_FEATURE_EXPORTABLE_BIT) != 0;
+}
+
+// ===========================================================================
 // map_frame
 // ===========================================================================
 
 CUresult VulkanH264Decoder::map_frame(int picture_index, HipFrameMapping *mapping) {
     if (!mapping || picture_index < 0 || static_cast<std::size_t>(picture_index) >= exports_.size())
         return CUDA_ERROR_INVALID_VALUE;
+    // decode() does not block; join the frame here (fence, per-frame decode
+    // status, fd export) and only then hand the buffer to HIP.
+    const CUresult joined = finish_frame(picture_index);
+    if (joined != CUDA_SUCCESS) return joined;
     ExportRes &exp = exports_[picture_index];
-    if (exp.fd < 0) return CUDA_ERROR_INVALID_VALUE;   // decode() hasn't produced this frame
+    if (exp.fd < 0) return CUDA_ERROR_INVALID_VALUE;   // nothing decoded for this picture
 
     // Ownership: map_fd() takes the fd (it is closed on reset()). Hand off.
     const int fd = exp.fd;

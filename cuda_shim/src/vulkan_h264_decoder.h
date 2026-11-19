@@ -60,6 +60,26 @@ private:
     // caller checks session_ != VK_NULL_HANDLE to distinguish ready vs deferred.
     CUresult ensure_session();
 
+    // Join one decoded frame (wait the ring fence, read the decode query status,
+    // export the dma-buf fd). Called from map_frame() and when a ring slot or a
+    // picture index has to be reused. No-op when the picture is not in flight.
+    CUresult finish_frame(int picture_index);
+
+    // Pick a free ring slot for a new picture, joining in-flight frames first if
+    // the pipeline is saturated or the picture index still has one pending.
+    CUresult acquire_ring(int picture_index, int *ring);
+
+    // Read the per-frame VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR slot of a ring.
+    CUresult read_decode_query(int ring_index);
+
+    // vkGetMemoryFdKHR(OPAQUE_FD) for a picture's export buffer.
+    CUresult export_frame_fd(int picture_index);
+
+    // vkGetPhysicalDeviceVideoFormatPropertiesKHR for NV12 + `usage`; prefers
+    // OPTIMAL tiling and falls back to LINEAR (copy-out works for both).
+    bool query_video_format(VkImageUsageFlags usage, VkImageTiling *tiling);
+    bool query_buffers_exportable();
+
     // Prefer raw parameter sets from CuvidParser; fall back to the per-decoder
     // synthetic pair built from CUVIDPICPARAMS for the h264_nvdec path.
     bool fetch_sequence_params(std::vector<uint8_t> *sps, std::vector<uint8_t> *pps) const;
@@ -76,19 +96,38 @@ private:
     VkVideoProfileInfoKHR profile_info_ = {};           // built from SPS, reused for images
     VkVideoDecodeH264ProfileInfoKHR h264_profile_info_ = {};  // chained on profile_info_.pNext
 
-    // Command + sync.
+    // Command + sync pools (command buffers themselves live in the ring below).
     VkCommandPool decode_pool_ = VK_NULL_HANDLE;
     VkCommandPool transfer_pool_ = VK_NULL_HANDLE;
-    VkCommandBuffer decode_cmd_ = VK_NULL_HANDLE;
-    VkCommandBuffer transfer_cmd_ = VK_NULL_HANDLE;
-    VkSemaphore decode_done_ = VK_NULL_HANDLE;
-    VkSemaphore copy_done_ = VK_NULL_HANDLE;
-    VkFence copy_fence_ = VK_NULL_HANDLE;
+
+    // decode() does not block. Every in-flight frame owns one ring slot with its
+    // own command buffers, semaphore, fence, bitstream buffer and query index;
+    // map_frame() (or ring exhaustion) joins the frame that owns the picture.
+    struct FrameRing {
+        VkCommandBuffer decode_cmd = VK_NULL_HANDLE;
+        VkCommandBuffer transfer_cmd = VK_NULL_HANDLE;
+        VkSemaphore decode_done = VK_NULL_HANDLE;
+        VkFence copy_fence = VK_NULL_HANDLE;
+        VkBuffer bitstream = VK_NULL_HANDLE;
+        VkDeviceMemory bitstream_mem = VK_NULL_HANDLE;
+        int owner = -1;   // picture index using the slot, -1 when free
+    };
+    std::vector<FrameRing> rings_;
+
+    // One record per output surface. A surface carries at most one in-flight
+    // frame: the client cannot decode into it again before it is mapped.
+    struct PendingFrame {
+        bool active = false;
+        int ring = -1;
+    };
+    std::vector<PendingFrame> pending_;
+    uint32_t pipeline_depth_ = 1;   // ring count, CUVID_SHIM_PIPELINE_DEPTH capped 1..8
 
     // 解码结果状态 query（VK_QUERY_TYPE_RESULT_STATUS_ONLY_KHR，与 FFmpeg
     // ff_vk_decode_frame 同一套做法）。没有它，vkCmdDecodeVideoKHR 是 void，
     // 失败只能等内核 ring timeout 变成 context lost，日志里连"哪一帧出错"都
-    // 判断不了。队列族不支持 queryResultStatus 时保持 VK_NULL_HANDLE（跳过）。
+    // 判断不了。每个 ring 槽位一个 query 下标，由 finish_frame() 读取。
+    // 队列族不支持 queryResultStatus 时保持 VK_NULL_HANDLE（跳过）。
     VkQueryPool decode_query_ = VK_NULL_HANDLE;
     bool query_supported_ = false;
 
@@ -115,9 +154,7 @@ private:
     };
     std::vector<ExportRes> exports_;
 
-    // Annex-B bitstream buffer (single, reused per slice).
-    VkBuffer bitstream_buf_ = VK_NULL_HANDLE;
-    VkDeviceMemory bitstream_mem_ = VK_NULL_HANDLE;
+    // Size of each ring slot's Annex-B bitstream buffer.
     VkDeviceSize bitstream_buf_size_ = 0;
 
     // Memory bound to the video session (VCN session/decoder context buffers).
@@ -133,10 +170,21 @@ private:
     int coded_height_ = 0;
     int decode_qf_ = 0;
     int transfer_qf_ = 0;
+    // True when the copy must run on a different queue family than the decode:
+    // images are CONCURRENT and submissions are bridged by a semaphore. When the
+    // decode family can also transfer, one queue is used and ordering is implicit.
+    bool cross_queue_ = false;
     uint32_t max_dpb_slots_ = 17;
     uint32_t max_active_refs_ = 0;
     VkDeviceSize min_bitstream_align_ = 128;
     uint32_t pitch_align_ = 256;
+
+    // Capabilities queried in ensure_session() instead of assuming NV12+OPTIMAL.
+    // output_tiling_/dpb_tiling_ come from vkGetPhysicalDeviceVideoFormatPropertiesKHR;
+    // dpb_distinct_ is the DPB/output separation this backend relies on.
+    VkImageTiling output_tiling_ = VK_IMAGE_TILING_OPTIMAL;
+    VkImageTiling dpb_tiling_ = VK_IMAGE_TILING_OPTIMAL;
+    bool dpb_distinct_ = false;
     uint8_t sps_id_ = 0;
     uint8_t pps_id_ = 0;
 

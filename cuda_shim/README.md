@@ -62,8 +62,10 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 | 变量 | 作用 |
 |---|---|
 | `RADV_PERFTEST=video_decode` | 验证机脚本显式设置；部分 Mesa 版本可能默认暴露视频队列族，尚未做同版本 A/B 对照 |
-| `CUVID_SHIM_DEBUG_VK=1` | 每帧打印解码参数（type/poc/参考槽/setup 槽/DPB 空闲表） |
-| `CUVID_SHIM_NOCOPY=1` | 只解码不导出，分离“解码参数问题”与“同步/导出问题” |
+| `CUVID_SHIM_DEBUG_VK=1` | 每帧打印解码参数（type/poc/参考槽/setup 槽/DPB 空闲表），以及查询到的 tiling、DPB/output 分离能力和流水线深度 |
+| `CUVID_SHIM_NOCOPY=1` | 只解码不做导出拷贝，分离“解码参数问题”与“同步/导出问题”；映射仍可成功，但读到的是未被拷贝更新的 buffer |
+| `CUVID_SHIM_PIPELINE_DEPTH=<n>` | Vulkan 后端允许同时在飞的帧数（1–8，默认 4）；设为 1 退回逐帧同步行为。环满时 `decode()` 会回收最早的在飞帧 |
+| `CUVID_SHIM_VK_TILING=linear\|optimal` | 验证用：强制输出/DPB 图像的 tiling，绕过驱动 format query 的宣告，用来端到端验证 LINEAR 退化路径；不是生产开关 |
 | `CUVID_SHIM_TRACE_PARAMS=1` | 打印每次 `cuvidDecodePicture` 的 frame_num/POC/DPB，用于参考帧问题定位 |
 | `CUVID_SHIM_TRACE_SURF=1` | 打印解码目标面与 map/unmap 顺序 |
 | `CUVID_DUMP_NV12_DIR=<dir>` | 每帧 dump NV12，用于和软解参考逐帧逐平面比对 |
