@@ -1,0 +1,76 @@
+Vulkan Video H.264 linear-decode probe — validation log
+
+date: 2026-11-19 09:17 UTC
+kernel: Linux 7.0.0-43-generic x86_64
+cpu: Intel(R) Xeon(R) Gold 6133 CPU @ 2.50GHz
+rocm: 7.2.4
+mesa/vulkan: 25.2.8-0ubuntu0.24.04.4
+ffmpeg: ffmpeg version 7.1 Copyright (c) 2000-2024 the FFmpeg developers
+libx264: 2:0.164.3108+git31e19f9-1 (8-bit build)
+
+vulkan_device=AMD Radeon RX 7900 XTX (RADV NAVI31)
+same_gpu=0000:b1:00.0 hip_device=0
+
+-- capability probe --
+probe: profile chroma depth result maxDpb activeRefs extent format
+probe: baseline  4:2:0  8-bit OK dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: baseline  4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: baseline  4:2:2  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: baseline  4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: baseline  4:4:4  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: baseline  4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: main      4:2:0  8-bit OK dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: main      4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: main      4:2:2  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: main      4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: main      4:4:4  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: main      4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: high      4:2:0  8-bit OK dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: high      4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: high      4:2:2  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: high      4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: high      4:4:4  8-bit NO-DST-FORMAT dpb=17 refs=16 extent=64x64..4096x4096 dstFormats=1000156003(t0)
+probe: high      4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_FORMAT_NOT_SUPPORTED_KHR (-1000023003)
+probe: high10    4:2:0  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high10    4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high10    4:2:2  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high10    4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high10    4:4:4  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high10    4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:2:0  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:2:2  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:4:4  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high422   4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:2:0  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:2:0 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:2:2  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:2:2 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:4:4  8-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+probe: high444   4:4:4 10-bit VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+PASS baseline Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS main Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-bpyramid Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-ref16 Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-slices4 Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-intra-refresh Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-open-gop Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-nodeblock Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-aud Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS high-weighted Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-96x96 Vulkan linear decode -> HIP frames=24 96x96 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-176x144 Vulkan linear decode -> HIP frames=24 176x144 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-320x240 Vulkan linear decode -> HIP frames=24 320x240 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-640x368 Vulkan linear decode -> HIP frames=24 640x368 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-854x480-crop Vulkan linear decode -> HIP frames=16 854x480 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-1280x720 Vulkan linear decode -> HIP frames=12 1280x720 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-1920x1080-crop Vulkan linear decode -> HIP frames=6 1920x1080 4:2:0 8-bit max_y_error=0 max_c_error=0
+PASS res-3840x2160 Vulkan linear decode -> HIP frames=3 3840x2160 4:2:0 8-bit max_y_error=0 max_c_error=0
+SKIP chroma-422-yuv422p profile=high422 chroma=4:2:2 depth=8 caps=VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+SKIP chroma-444-yuv444p profile=high444 chroma=4:4:4 depth=8 caps=VK_ERROR_VIDEO_PROFILE_OPERATION_NOT_SUPPORTED_KHR (-1000023002)
+SKIP depth-10-p010le (encoder cannot produce this stream; 10-bit needs a high-depth libx264)
+PASS fixture Vulkan linear decode -> HIP frames=6 640x368 4:2:0 8-bit max_y_error=0 max_c_error=0
+
+== summary: PASS=20 SKIP=3 FAIL=0 ==
