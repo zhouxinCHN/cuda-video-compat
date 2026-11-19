@@ -66,13 +66,13 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 
 `verify_vk_decode_to_hip.cpp`（已在 AMD 机上逐字节通过）里容易踩坑的点，全部原样搬入：
 
-1. **双队列**：decode 队列族无 TRANSFER，copy 必须在 transfer 队列族；图像/缓冲 `CONCURRENT` 共享 + sync2 semaphore 桥接。
+1. **双队列**：decode 队列族无 TRANSFER，copy 必须在 transfer 队列族；图像/缓冲 `CONCURRENT` 共享 + sync2 semaphore 桥接。decode 队列族自己能 copy 时（`cross_queue_ == false`）只用一个队列族，图像用 `EXCLUSIVE`，不再需要跨队列 semaphore。
 2. **`pSetupReferenceSlot` 每帧非 NULL**（含 B 帧，用临时 DPB slot，解码后回收）。
 3. **DPB 分离**：DPB 图只带 `VK_IMAGE_USAGE_VIDEO_DECODE_DPB_BIT_KHR`，不混 DST（RADV `radv_video.c`）。
 4. **Annex-B + start code**：h264_cuvid 传入裸 NAL，需要补 `00 00 00 01`；h264_nvdec 的 `pBitstreamData` 已由 FFmpeg 组装为 Annex-B，不能再重复补。多 slice access unit 必须完整上传并提交全部 slice offset，不能只解第一片。
 5. **导出链路**：`vkCmdCopyImageToBuffer`（barrier 转 `TRANSFER_SRC_OPTIMAL`，逐平面 Y/UV）→ `vkGetMemoryFdKHR(OPAQUE_FD)` → HIP import。
 6. **SPS/PPS → Std 转换**：`fill_sps_std` / `fill_pps_std`（含 scaling list 8x8 顺序 `{0,3,1,4,2,5}`、designated-initializer 字段序、`aspect_ratio_idc` cast）。
-7. **主机同步**：`vkWaitForFences(copyFence)` 后再导出/HIP 读；异步 sync_file 桥接属并行项，不阻塞。
+7. **主机同步**：fence 等待、解码状态查询与导出 fd 都放在 `map_frame()` 的 `finish_frame()` 里；`decode()` 只提交不等待（见 §3.5）。异步 sync_file 桥接属并行项，不阻塞。
 
 ### 3.4 逐帧 slice 解析
 
@@ -82,7 +82,7 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 
 ### 3.5 map_frame 与 fd 所有权
 
-`decode()` 末尾 `vkGetMemoryFdKHR` 导出 fd 存进 `exports_[PicIdx].fd`；`map_frame()` 把 fd 转移给 `HipFrameMapping::map_fd()`（`exp.fd = -1` 后移交，`HipFrameMapping::reset()` 负责 close）。fd 生命周期与 VAAPI 后端一致（mapping 析构即 close），无泄漏。
+`decode()` 提交后不等待；`map_frame()` 先调用 `finish_frame(PicIdx)`：等该帧的 fence、读该环槽的解码状态 query、`vkGetMemoryFdKHR` 导出 fd 存进 `exports_[PicIdx].fd`，再把 fd 转移给 `HipFrameMapping::map_fd()`（`exp.fd = -1` 后移交，`HipFrameMapping::reset()` 负责 close）。fd 生命周期与 VAAPI 后端一致（mapping 析构即 close），无泄漏。
 
 `HipFrameMapping::map_fd()` 是 Vulkan 专用入口：跳过 VAAPI 的 `VADRMPRIMESurfaceDescriptor`，直接导入已导出的 fd，并假定 Y/UV 连续（UV offset = pitch × height，正是 `vkCmdCopyImageToBuffer` 写出的布局）。
 
@@ -103,7 +103,25 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 
 这些参数集限制必须显式失败，不允许静默输出错误帧；多 slice access unit 则按完整码流和全部 slice offset 提交。当前已验证场景与剩余边界见[当前能力矩阵](../当前能力矩阵.md)。
 
-## 4. 交付范围与实现边界
+### 3.7 能力查询与解码流水线
+
+**能力查询（`ensure_session()`）**：不再硬编码 NV12 + OPTIMAL，所有前提先问驱动，不满足就显式失败并在 `CUVID_SHIM_DEBUG_VK=1` 下打印原因。
+
+| 查询 | 行为 |
+|---|---|
+| `vkGetPhysicalDeviceVideoFormatPropertiesKHR`（DECODE_DST / DPB 各一次） | 只接受 NV12；优先 OPTIMAL，只有 LINEAR 时退回 LINEAR（导出拷贝对两种 tiling 都成立）。没有任何 NV12 条目 → `CUDA_ERROR_NOT_SUPPORTED`。`CUVID_SHIM_VK_TILING=linear\|optimal` 可绕过宣告强制 tiling，用于在只宣告 OPTIMAL 的驱动上验证 LINEAR 退化路径，不是生产开关 |
+| `VkVideoDecodeCapabilitiesKHR::flags` | 必须支持 `DPB_AND_OUTPUT_DISTINCT`。COINCIDE-only 驱动需要输出面兼作参考面（另一套 slot 记账），当前不实现，显式拒绝 |
+| `maxActiveReferencePictures` | 驱动报 0 时按 1 处理（否则所有带参考帧的提交都非法） |
+| `vkGetPhysicalDeviceExternalBufferProperties(OPAQUE_FD)` | 导出 buffer 必须 `EXPORTABLE`；分配链 `VkExportMemoryAllocateInfo → VkMemoryDedicatedAllocateInfo` |
+| memory type | 先找满足属性的类型，找不到再退到 `memoryTypeBits` 里任意类型；bitstream buffer 要求 `HOST_VISIBLE+HOST_COHERENT`，不降级 |
+| 队列族 | decode 队列族自己能 copy 时用一个队列族（`EXCLUSIVE` 图像、无 semaphore）；否则才用第二个队列族（`CONCURRENT` + decode→copy semaphore） |
+
+**流水线（`decode()` 不阻塞）**：每个在飞帧占一个环槽（`FrameRing`：decode/transfer 命令缓冲、`decode_done` semaphore、`copy_fence`、bitstream buffer、query 下标）。`decode()` 只记录并提交；`map_frame()` 的 `finish_frame()` 完成 fence 等待、逐帧状态检查和 fd 导出。`pending_` 每个输出面最多一个在飞帧。环深由 `CUVID_SHIM_PIPELINE_DEPTH` 控制（1–8，默认 4，上限是 `ulNumDecodeSurfaces`）：
+
+- 同一 picture index 被再次解码：先 join 旧帧（该帧不会再被 map）；
+- 环槽用尽：join 全部在飞帧后重试——这是 `decode()` 里唯一可能阻塞的路径，行为退回旧的逐帧同步；
+- 提交失败或 fence 超时：置 `device_lost_`，后续提交直接失败（fail fast），避免在半提交状态下复用环槽；
+- `CUVID_SHIM_NOCOPY=1`：不记录 transfer，`decode()` 内立即 join（诊断模式，map 仍可成功但 buffer 未被拷贝更新）。
 
 当前交付范围、已验证场景和未闭环项统一见[当前能力矩阵](../当前能力矩阵.md)。本文只补充 Vulkan 特有的实现约束：参数集合成的信息保真边界见 §3.6，同线程多 decoder 限制见 §3.1，transfer-only/SDMA 路径的多平面 pitch 疑点见 §8.4。
 
@@ -209,6 +227,23 @@ FFmpeg 的做法是把它放在 `common->mem[]` 里，只有 `ff_vk_video_common
 3. **`verify_kernel_read` 的 `OK/Ysum/UVsum` 不校验画面**：只证明 GPU kernel 与 CPU 读到同一块内存；`frames_ok>=10` 只代表流程完整。画面正确性必须 dump NV12 后与软解参考逐帧比。
 4. **已排除的假设（避免重复尝试）**：H.264 语义层（slice/POC/ref_count 与 `trace_headers` 一致）、DPB 图未写、`used_for_reference_flags` 差异、`RADV_DEBUG=videoarraypath`、`CUVID_SHIM_EXP=dpbsrc`、SDMA 拷贝路径——均与 B 帧挂死无关。根因是 §8.1 的会话内存 UAF。
 5. **SDMA 路径的上游疑点**：`radv_sdma_get_buf_surf()` 里 `pitch = bufferRowLength * texel_scale` 对多平面 plane 1 可能少算一倍。这是潜在上游 bug，与本次问题无关；若将来走 transfer-only 队列族需先绕开。
+
+### 8.5 2026-11-19 能力查询与流水线改造回归（RX 7900 XTX / RADV）
+
+改动：§3.7 的能力查询与 `decode()` 去阻塞。回归口径（Vulkan 后端）：
+
+| 项 | 结果 |
+|---|---|
+| `verify_kernel_read` + dump 对比软解 | 六路码流（`test_p_b_5`/`test_p_b_7`/`test_p_main`/`test_p_66`/`test_slices_320x240`/`test_crop_1080p`）逐帧逐字节一致；crop 按显示高度比较（dump 为 coded 高度） |
+| FFmpeg 宿主矩阵（`run_ffmpeg_compare.sh BACKENDS=vk`） | 16/16 PASS，覆盖 `nvdec-safe`/`nvdec-unsafe`/`cuvid-cpu`/`cuvid-cuda` × 四路码流；`nvdec-unsafe` 的 D2D 仍为 0 |
+| 复杂场景（`run_decode_scenarios.sh BACKENDS=vk`） | 6/6：多 slice / 1080p crop / MP4 seek × cuvid / nvdec |
+| 多流（`run_multi_stream.sh BACKENDS=vk STREAMS=8`） | 8 路并发与软解一致 |
+| `CUVID_SHIM_PIPELINE_DEPTH` = 1 / 4 / 8 | 三种深度均逐帧一致 |
+| `CUVID_SHIM_VK_TILING=linear`（强制输出+DPB 线性，绕过宣告） | `test_p_b_7`/`test_p_main`/`test_slices_320x240`/`test_crop_1080p` 仍逐字节一致，说明 LINEAR 退化分支的拷贝与 barrier 正确 |
+| `CUVID_SHIM_NOCOPY=1` | 13/13 解码与映射成功，校验和如预期不匹配（buffer 未被拷贝更新） |
+| 临时大尺寸（`h264_vaapi` 生成，非归档码流） | 1080p 30 帧（coded 1088，含 B 帧）与 4K 6 帧均逐字节一致 |
+
+未覆盖：COINCIDE-only 驱动与“只宣告 LINEAR”的驱动在本机不存在，对应分支只有能力拒绝/退化逻辑，未在真实设备上执行；性能收益（decode 与 export 拷贝重叠）尚未做同口径 A/B，矩阵“性能”一项仍是未闭环。
 
 ## 9. 移植指南（从 VAAPI 验证程序到 Vulkan 后端）
 
