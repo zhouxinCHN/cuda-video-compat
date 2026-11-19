@@ -17,7 +17,7 @@
 
 | 文档 | 唯一职责 |
 |---|---|
-| [CUDA 兼容层总体方案](architecture/CUDA兼容层总体方案.md) | **总体架构与实施决策**：目标/边界、总体架构、技术选型、成本/WBS 与人力、排期 Gate、法务/客户边界、长期 SDK 规划 |
+| [CUDA 兼容层总体方案](architecture/CUDA兼容层总体方案.md) | **总体架构与实施决策**：两条兼容路线（功能层兼容 / API 兼容）、目标/边界、总体架构、技术选型、成本/WBS 与人力、排期 Gate、法务/客户边界、长期 SDK 规划 |
 | [方案整合版](architecture/CUDA兼容层方案_整合版.md) | **技术实现、验证方法与风险边界**：公共实现、VAAPI/Vulkan/Mesa 设计、历史实验、防御性说明、源码索引和版本历史；当前状态只引用能力矩阵 |
 
 ### 专题文档（当前权威）
@@ -26,6 +26,7 @@
 |---|---|
 | [内存与同步模型](architecture/内存与同步模型.md) | UVA vs UVM、`cuvidMapVideoFrame64` 契约、VAAPI/Vulkan 导出导入、同步基线、零拷贝验证结论 |
 | [CUVID 到 VAAPI 映射表与 P0 API 覆盖](architecture/CUVID到VAAPI映射表.md) | P0 符号范围与不承诺项、CUVID/VAAPI 函数与结构体映射、parser 复用、libcuda 状态 |
+| [CUVID 与 rocDecode 接口对照](architecture/CUVID与rocDecode接口对照.md) | 路线一（功能层兼容，应用可改代码）的 CUVID↔rocDecode 函数/结构体/枚举/行为对照，含接入工作量与缺口 |
 | [解码层接口兼容详细设计](architecture/解码层接口兼容详细设计.md) | 解码层全部兼容接口的语义、功能分类、分类数据流程，以及后端无关接口与 VAAPI/Vulkan 分后端接口的逐项实现设计 |
 | [NVDEC 与 VAAPI 解码对比](architecture/NVDEC与VAAPI解码对比.md) | 历史格式能力矩阵、NVDEC 直测性能、环境差异 |
 | [NPP 兼容方案与 VPE 对比](architecture/NPP兼容方案与VPE对比.md) | NPP 26 项能力、VPE 能力与 VAAPI 暴露面、许可路线、库组织与实现方案 |
@@ -52,7 +53,7 @@
 
 ## 阅读建议
 
-1. 先看[总体方案](architecture/CUDA兼容层总体方案.md)，了解目标边界、总体架构、技术选型、成本人力、排期 Gate、法务/客户边界和长期 SDK 规划。
+1. 先看[总体方案](architecture/CUDA兼容层总体方案.md)，按“应用能否改代码”区分路线一（功能层兼容，ROCm 开源组件）和路线二（API 兼容，本仓库兼容层），再了解目标边界、总体架构、技术选型、成本人力、排期 Gate、法务/客户边界和长期 SDK 规划。
 2. 再看[内存与同步模型](architecture/内存与同步模型.md)和 [CUVID 到 VAAPI 映射表](architecture/CUVID到VAAPI映射表.md)，建立数据通路与 API 边界。
 3. 需要判断当前实现、验证覆盖或缺口时，只看[当前能力矩阵](当前能力矩阵.md)；总体方案负责决策，整合版负责技术实现与风险边界，历史证据按批次追溯。
 4. 需要动手时看[验证手册](verification/验证手册.md)。

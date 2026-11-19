@@ -2,6 +2,8 @@
 
 在非 NVIDIA GPU 上，为**重新编译**的 CUDA 视频应用提供 NVDEC / CUVID / NPP 兼容层：用户的 CUDA kernel 由 HIPIFY 转为 HIP，NVIDIA 库调用由 `libcuda.so.1`、`libnvcuvid.so.1`、`libnpp*.so.11` 接住；解码后端可在 **VAAPI** 与 **Vulkan Video** 之间切换。
 
+按“应用是否允许改代码”分两条路线：**路线一 功能层兼容**（应用改用 ROCm 开源组件如 rocDecode/HIP，已有开源方案）、**路线二 API 兼容**（应用不改代码、只需按兼容层重新编译/链接，即本仓库）。两条路线的边界与 CUVID↔rocDecode 接口对照见[总体方案](docs/architecture/CUDA兼容层总体方案.md#12-两条兼容路线与客户前提)和[CUVID 与 rocDecode 接口对照](docs/architecture/CUVID与rocDecode接口对照.md)。
+
 > 当前实现、验证覆盖与未闭环项统一见[当前能力矩阵](docs/当前能力矩阵.md)。本项目不是生产可用版本。
 
 ## 仓库结构

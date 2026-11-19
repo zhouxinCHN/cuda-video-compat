@@ -1,8 +1,8 @@
 # CUDA 兼容层总体方案
 
-> 版本：v6.12
-> 文档日期：2026-11-16
-> 技术事实截止：2026-11-16
+> 版本：v6.13
+> 文档日期：2026-11-19
+> 技术事实截止：2026-11-19
 > 一句话：让客户现有基于 NVIDIA CUDA 的视频软件，以少量构建适配和重新编译迁移到自研 GPU，当前聚焦“视频解码 → 图像处理”主链路。
 > 职责：本文是项目**总体架构与实施决策的唯一权威文档**，负责目标范围、兼容方式、技术选型、业务价值、成本人力、排期 Gate、发布边界和长期自研 SDK 规划。
 > 边界：当前实现、验证覆盖与未闭环项见[当前能力矩阵](../当前能力矩阵.md)；技术实现、验证方法、历史实验证据及防御性风险见[方案整合版](CUDA兼容层方案_整合版.md)；字段映射和运行步骤见对应专题文档。
@@ -16,8 +16,9 @@
 
 | 决策项 | 建议结论 |
 |---|---|
-| 兼容方式 | 采用**源码级重编译兼容**，保留主要 CUDA、CUVID、NPP 调用方式，不承诺预编译二进制直接替换运行 |
-| 技术主线 | **尚未决策**；VAAPI 转接与 Vulkan Video 为同级候选，均不能称为主线 |
+| 兼容路线 | **两条路线并列**：路线一“功能层兼容”——允许改应用代码，直接使用 ROCm 开源组件（rocDecode/HIP 等），已有开源方案；路线二“API 兼容”——应用不改代码，只按兼容层重新编译/链接，保留 CUDA/CUVID/NPP 调用方式。本项目当前属于路线二 |
+| 兼容方式（路线二落地） | 采用**源码级重编译兼容**：保留主要 CUDA、CUVID、NPP 调用方式，不承诺预编译二进制直接替换运行 |
+| 技术主线 | **尚未决策**；VAAPI 转接与 Vulkan Video 为同级候选，均不能称为主线（两者都是路线二的后端候选） |
 | 备选路线 | 无“已确定主线/备选”之分；两后端按同一验收口径验证，选型后再确定投入与发布策略 |
 | 长期路线 | **Mesa 新增 frontends** 本期排除，作为平台级视频能力的长期选项 |
 | 业务范围 | H.264、8-bit、4:2:0、NV12；FFmpeg 7.1 双路径；3 个 NPP 函数及必要支撑 |
@@ -43,13 +44,66 @@
 - 客户应用与目标平台的完整业务验收；
 - 可持续构建、发布和维护的兼容层产品。
 
-### 1.2 兼容方式与客户前提
+### 1.2 两条兼容路线与客户前提
 
-客户使用兼容层提供的头文件、库和构建说明重新编译。客户自研 CUDA kernel 通过 HIPIFY 转为 HIP；NVIDIA 视频与图像库调用由兼容层承接。
+按“应用是否允许改代码”分为两条路线。两者不是同一交付的两级，而是两条独立技术路线：路线一已经有 ROCm 开源方案，路线二由本项目兼容层承接。选择依据见 §1.2.3。
 
-选择源码级兼容的原因：当前目标是限定链路而非通用二进制替换；可以锁定真实源码调用面和依赖版本；现有接口清单与底层实现能够直接复用；客户问题可部分提前到编译和链接阶段暴露。
+#### 1.2.1 路线一：功能层兼容（应用可改代码）
+
+应用改用 ROCm 原生组件，不再保留 CUDA/CUVID/NPP 调用名称：
+
+- 解码：rocDecode（ROCm 开源，底层 VA-API）；
+- 计算：HIP；
+- 图像：rocJPEG / rocAL 等 ROCm 组件（没有 NPP 的逐函数等价物）。
+
+现状与边界：
+
+- **已有开源方案**，不需要本项目再实现解码器；代价是应用改造 + 重新构建，并接受 ROCm 组件的 API 与行为。
+- FFmpeg 7.1 **没有 rocDecode hwaccel**（本机核对：`libavutil` 无 HIP pixfmt/hwcontext，`libavcodec` 无 rocDecode 代码）。选择路线一时，要么应用直接调 rocDecode，要么自行给 FFmpeg 增加解码后端。
+- rocDecode 底层是 VA-API/Mesa，能力上限与本项目 VAAPI 后端同源；AMD 验证机探针显示 H.264 只支持 8-bit 4:2:0（见[当前能力矩阵](../当前能力矩阵.md)）。
+- 没有 NPP 等价物：`scale_npp` 等调用需要另找实现；编码（NVENC）也没有对应组件。
+- 接口形状：rocDecode 的 decoder/parser/status/reconfigure 与 CUVID 一一对应，但 H.264 参数体是 VA-API 形状；取帧是阻塞调用 + 三平面指针，没有 map/unmap、Deinterlace、Histogram、CtxLock、video source。
+
+CUVID 与 rocDecode 的函数级对照（完整字段/行为对照见 [CUVID 与 rocDecode 接口对照](CUVID与rocDecode接口对照.md)）：
+
+| 能力 | CUVID | rocDecode | 结论 |
+|---|---|---|---|
+| 能力查询 | `cuvidGetDecoderCaps` | `rocDecGetDecoderCaps` | 1:1，字段有差异 |
+| 建/销毁解码器 | `cuvidCreateDecoder` / `cuvidDestroyDecoder` | `rocDecCreateDecoder` / `rocDecDestroyDecoder` | 1:1 |
+| 解一帧 | `cuvidDecodePicture` | `rocDecDecodeFrame` | 外壳 1:1，参数体为 VA-API 形状 |
+| 解码状态 | `cuvidGetDecodeStatus` | `rocDecGetDecodeStatus` | 枚举值一致，rocDecode 多 `Displaying` |
+| 重配置 | `cuvidReconfigureDecoder` | `rocDecReconfigureDecoder` | 1:1 |
+| 取帧 | `cuvidMapVideoFrame64` + `cuvidUnmapVideoFrame64` | `rocDecGetVideoFrame` | 2:1；阻塞、三平面指针、无 unmap |
+| 32 位取帧 | `cuvidMapVideoFrame` + `cuvidUnmapVideoFrame` | 无 | 仅 64 位 |
+| Parser | `cuvidCreateVideoParser` / `cuvidParseVideoData` / `cuvidDestroyVideoParser` | `rocDecCreateVideoParser` / `rocDecParseVideoData` / `rocDecDestroyVideoParser` | 1:1 |
+| 上下文锁 | `cuvidCtxLock*`（4 个） | 无 | HIP 无对应 |
+| Video source（旧 API） | `cuvidCreateVideoSource*` 等 7 个 | 无 | NVIDIA 已弃用 |
+| 错误名 | 无 | `rocDecGetErrorName` | rocDecode 独有 |
+| 码流读取器 | 无 | `rocDec*BitstreamReader*`（5 个） | rocDecode 独有 |
+
+结论：路线一适合“可以改代码、愿意改用 ROCm API”的客户；它是已有的开源路径，不是本项目的交付内容，但作为对照和兜底路线保留。
+
+#### 1.2.2 路线二：API 兼容（应用不改代码，重新编译/链接即可）
+
+应用保留 CUDA/CUVID/NPP 调用方式，由兼容层提供的 `libcuda.so.1`、`libnvcuvid.so.1`、`libnpp*.so.11` 承接；客户自研 CUDA kernel 通过 HIPIFY 转为 HIP。应用**不改代码**，只需按兼容层提供的头文件和库重新编译/链接；不承诺预编译二进制直接替换运行。
+
+选择源码级兼容（不改代码、重新编译）的原因：当前目标是限定链路而非通用二进制替换；可以锁定真实源码调用面和依赖版本；现有接口清单与底层实现能够直接复用；客户问题可部分提前到编译和链接阶段暴露。
+
+本项目当前范围（P0 交付、验证矩阵、NPP、FFmpeg 双宿主）属于路线二。§3 的 VAAPI/Vulkan Video 转接和 Mesa frontend 都是路线二的后端/实现调研；它们的产出不适用于路线一。
 
 项目启动前应书面确认客户能够从干净环境重建产品，并允许构建适配进入正式发布流程。若重点客户只能提供预编译二进制，应单独重新评估兼容方式和周期。
+
+#### 1.2.3 路线选择依据
+
+| 判断项 | 路线一：功能层兼容 | 路线二：API 兼容 |
+|---|---|---|
+| 应用能否改代码 | 必须能改 | 不需要改 |
+| 是否保留 CUDA/CUVID/NPP 名称 | 不保留 | 保留 |
+| 现有开源实现 | ROCm（rocDecode/HIP 等），直接可用 | 需要本项目的兼容层 |
+| NPP 等价能力 | 无逐函数等价物，需另找实现 | 由 `libnpp*.so.11` shim 承接 |
+| FFmpeg 宿主 | 需要应用直接调 rocDecode 或改 FFmpeg | 现有 shim 已支持 `h264_cuvid`/`h264_nvdec` |
+| 解码能力上限 | 取决于 Mesa VA-API（与本项目 VAAPI 后端同源） | 取决于所选后端（VAAPI/Vulkan） |
+| 适用结论 | 可改代码、接受 ROCm API 的客户 | 需要保留现有调用方式的存量业务 |
 
 ### 1.3 P0 交付范围
 
@@ -162,6 +216,8 @@ flowchart TB
 ---
 
 ## 3. 技术方案与选型
+
+> 本章 §3.1–§3.3 都是**路线二（API 兼容）**的后端/实现调研：VAAPI 转接、Vulkan Video 转接和 Mesa 新增 frontends。路线一的 ROCm 开源组件与 CUVID/rocDecode 接口对照见 §1.2.1 和 [CUVID 与 rocDecode 接口对照](CUVID与rocDecode接口对照.md)。
 
 ### 3.1 方案一：VAAPI 转接——候选方案 A
 
@@ -451,7 +507,7 @@ flowchart LR
 
 | 决策项 | 需要形成的明确结论 | 最迟决策点 | 决策后的计划动作 |
 |---|---|---|---|
-| 兼容方式与客户前提 | 是否确认源码级重编译；首批客户能否提供源码、构建环境、构建权和业务回归条件 | **G0 / W1 前** | 条件满足则启动第 4 章基线；只能提供二进制时，重新评估方案后再排期 |
+| 兼容路线与客户前提 | 是否确认走路线二（API 兼容：应用不改代码、重新编译/链接）；是否已评估路线一（功能层兼容，ROCm 开源组件）的可行性；首批客户能否提供源码、构建环境、构建权和业务回归条件 | **G0 / W1 前** | 条件满足则启动第 4 章基线；客户可改代码且接受 ROCm API 时，先按路线一评估；只能提供二进制时，重新评估方案后再排期 |
 | 技术主线 | 在 VAAPI、Vulkan Video 或双后端之间作出书面选型；确认前两者同级，不设默认主线 | **G0 / W1 前** | 按选定路线重做技术方案、WBS 与 Gate，不沿用当前日期 |
 | 业务边界 | 冻结首批客户、宿主、格式、接口、平台和生产场景 | **G0 / W1 前** | 按冻结清单确认 32–44 人周基线；新增范围另行估算 |
 | 时间与资源 | 是否批准一期 8–10 周、二期 4–6 周和一期 4.0–4.5 FTE，并确认关键人员及资产到位 | **G0 / W1 前** | 按实际到位时间锁定 W1 和 Gate 日期 |
@@ -473,7 +529,8 @@ flowchart LR
 | 当前实现、验证覆盖与未闭环项 | [当前能力矩阵](../当前能力矩阵.md) |
 | 总体架构、技术选型、成本人力、排期 Gate、发布边界和长期 SDK | 本文 |
 | 技术实现、验证细节、证据边界、实现缺口和防御性说明 | [方案整合版](CUDA兼容层方案_整合版.md) |
-| CUVID 符号与字段级映射 | [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
+| CUVID 符号与字段级映射（路线二） | [CUVID 到 VAAPI 映射表](CUVID到VAAPI映射表.md) |
+| CUVID 与 rocDecode 接口对照（路线一） | [CUVID 与 rocDecode 接口对照](CUVID与rocDecode接口对照.md) |
 | 内存、同步与零拷贝契约 | [内存与同步模型](内存与同步模型.md) |
 | Vulkan 后端专题设计 | [Vulkan 后端实现](Vulkan后端实现.md) |
 | NPP 能力、VPE 对比与许可 | [NPP 兼容方案与 VPE 对比](NPP兼容方案与VPE对比.md) |
@@ -491,8 +548,10 @@ flowchart LR
 | 术语 | 含义 |
 |---|---|
 | shim / 转接库 | 保留 NVIDIA 调用方式、内部改用其他实现的兼容库 |
-| 源码级兼容 | 保留主要调用方式，但客户需要重新编译和验收 |
-| 二进制兼容 | 客户原程序不重编译，直接加载兼容实现 |
+| 功能层兼容（路线一） | 允许改应用代码，改用 ROCm 原生组件（rocDecode/HIP 等），不需要兼容层 |
+| API 兼容（路线二） | 保留 CUDA/CUVID/NPP 调用方式，由兼容层承接；应用不改代码，按兼容层重新编译/链接即可 |
+| 源码级兼容 | 路线二的当前落地形态：调用方式不变，客户按兼容层重新编译/链接并验收 |
+| 二进制兼容 | 客户原程序不重编译，直接加载兼容实现；当前不承诺 |
 | VAAPI | Linux 通用视频硬件加速接口，本项目候选后端之一 |
 | Vulkan Video | Khronos 视频编解码接口，本项目与 VAAPI 同级的候选后端 |
 | HIP / ROCm | 自研 GPU 计算链路所使用的计算接口与平台 |
@@ -505,6 +564,7 @@ flowchart LR
 
 ---
 
+> v6.13（2026-11-19）：开篇改为两条兼容路线。路线一“功能层兼容（应用可改代码）”已有 ROCm 开源组件（rocDecode/HIP 等），新增 CUVID↔rocDecode 函数级对照与[完整接口对照](CUVID与rocDecode接口对照.md)；路线二“API 兼容（应用不改代码，重新编译/链接）”是本项目，VAAPI/Vulkan Video 和 Mesa frontend 均属于路线二的调研。决策摘要与术语同步。
 > v6.12（2026-11-16）：CUVID 宿主重建动态分辨率双后端 22/22 帧通过；单进程 8 路并发双后端通过；`VkSequenceCache` 改为线程局部。FFmpeg CLI 动态分辨率限制与长期参考帧仍为缺口。
 > v6.11（2026-11-16）：多 slice、crop、seek/flush 在 cuvid/nvdec × VAAPI/VK 共 12 个组合通过；动态分辨率（FFmpeg hwframes 限制）和长期参考帧仍为缺口。
 > v6.10（2026-11-16）：`libnppc` 核心 API 补全；FFmpeg `scale_npp` 端到端 40 case 在 NVIDIA 真实 NPP 11.5.1.107 与 AMD shim 两侧 40/40 一致，NPP 端到端 golden 项关闭；修正 shim 版本串为真实库返回的 11.5.1。
