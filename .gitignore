@@ -22,6 +22,7 @@ cuda_shim/verify_cuvid_symbols
 cuda_shim/verify_cuvid_session
 cuda_shim/verify_cuvid_parser
 cuda_shim/verify_h264_dpb
+cuda_shim/verify_h264_dpb_adapter
 cuda_shim/verify_kernel_read
 cuda_shim/test_func
 cuda_shim/test_func_full
@@ -56,6 +57,9 @@ tests/npp/build/
 tests/npp/npp-stage-a-output/
 
 # generated reference media (recreate with the Makefiles / testdata README)
+decode-scenarios/
+resolution-change/
+multi-stream/
 tests/**/ref_*.yuv
 testdata/**/*.yuv
 testdata/**/*.nv12

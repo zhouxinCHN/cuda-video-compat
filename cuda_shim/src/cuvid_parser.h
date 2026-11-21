@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <vector>
 
+#include "h264_dpb_adapter.h"
 #include "vk_sequence_cache.h"
 
 // FFmpeg internal H.264 parameter-set types.
@@ -44,72 +45,36 @@ private:
     bool ps_ready_ = false;
     bool sequence_sent_ = false;
     unsigned int num_decode_surfaces_ = 0;
-    unsigned int next_picture_index_ = 0;
 
-    struct PendingPicture {
-        int picture_index = -1;
-        int64_t timestamp = 0;
-        int poc = 0;
-    };
-    std::vector<PendingPicture> display_queue_;
+    // Shared backend-independent POC/DPB/output state.
+    H264Dpb dpb_;
+    bool dpb_configured_ = false;
 
     // Byte buffer accumulated across packets.
     std::vector<uint8_t> buffer_;
 
-    // Slices of the picture currently being assembled. A picture starts at a
-    // slice with first_mb_in_slice == 0 and is submitted to the backend as one
-    // CUVIDPICPARAMS once the last slice of the access unit has been seen.
-    // Each slice is stored with a 4-byte Annex-B start code; offsets index the
-    // first byte of each slice NAL inside slice_buffer_.
+    // Slices of the picture currently being assembled. The first slice supplies
+    // picture-level POC/MMCO syntax; every slice remains in the raw bitstream.
     struct PendingSlicePicture {
         int64_t timestamp = 0;
-        int frame_num = 0;
-        int poc = 0;
-        bool is_reference = true;
-        bool is_idr = false;
+        H264Slice syntax = {};
     };
     std::vector<uint8_t> slice_buffer_;
     std::vector<uint32_t> slice_offsets_;
     PendingSlicePicture pending_picture_;
     bool pending_picture_active_ = false;
 
-    // DPB (Decoded Picture Buffer) state for P/B frame support.
-    struct DpbEntry {
-        int picture_index = -1;
-        int frame_num = 0;
-        int poc = 0;
-        bool is_long_term = false;
-        bool is_reference = false;
-        int64_t timestamp = 0;
-    };
-    std::vector<DpbEntry> dpb_;
-    int prev_frame_num_ = 0;
-    int prev_poc_lsb_ = 0;
-    int prev_poc_msb_ = 0;
-
     // Stashed SPS/PPS NAL bytes, forwarded to VkSequenceCache once both are seen.
-    // This is the seam between the CUVID parser (which sees SPS/PPS) and the
-    // Vulkan backend (which needs them to build its session). See docs/architecture/Vulkan后端实现.md.
     std::vector<uint8_t> pending_sps_;
     std::vector<uint8_t> pending_pps_;
 
-    // Internal helpers.
     CUresult parse_packet_nal(int64_t timestamp);
     CUresult send_sequence();
-    CUresult parse_slice_header(const uint8_t *nal_data, std::size_t nal_size,
-                                bool is_idr, int *frame_num, int *poc,
-                                bool *is_reference, int *first_mb);
+    CUresult configure_dpb();
+    CUresult parse_slice_header(const H2645NAL &nal, H264Slice *slice, int *first_mb);
     CUresult flush_picture();
-    CUresult send_picture(const uint8_t *nal_data, std::size_t nal_size,
-                          int64_t timestamp, int frame_num, int poc,
-                          bool is_reference, bool is_idr);
-    // 选出本次解码用的输出 surface 下标。见 cuvid_parser.cpp 里的注释：
-    // VAAPI/radeonsi 后端不能同时拿 32 个不同的 surface 当解码目标。
-    unsigned int pick_decode_surface();
-    bool surface_in_use(unsigned int index) const;
-    void update_dpb(int picture_index, int frame_num, int poc, bool is_reference, int64_t timestamp);
-    void build_reference_lists(const CUVIDPICPARAMS &pic, std::vector<int> &list0, std::vector<int> &list1);
-    void pump_display_queue(int newest_poc, bool flush_all = false);
+    CUresult send_picture(const uint8_t *nal_data, std::size_t nal_size);
+    CUresult emit_outputs(bool flush);
 };
 
 } // namespace cuvid_shim

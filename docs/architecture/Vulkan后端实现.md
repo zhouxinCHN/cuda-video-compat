@@ -74,9 +74,14 @@ Vulkan Video 需要 SPS/PPS 在创建 session / session parameters 时一次性�
 6. **SPS/PPS → Std 转换**：`fill_sps_std` / `fill_pps_std`（含 scaling list 8x8 顺序 `{0,3,1,4,2,5}`、designated-initializer 字段序、`aspect_ratio_idc` cast）。
 7. **主机同步**：fence 等待、解码状态查询与导出 fd 都放在 `map_frame()` 的 `finish_frame()` 里；`decode()` 只提交不等待（见 §3.5）。异步 sync_file 桥接属并行项，不阻塞。
 
-### 3.4 逐帧 slice 解析
+### 3.4 逐帧 slice 解析与共享 DPB
 
-`decode()` 收到的 `CUVIDPICPARAMS.pBitstreamData` 是一个 access unit，可包含一个或多个 slice。用 FFmpeg `ff_h2645_packet_split` 切分并解析 slice header → `parse_slice_header`（自写，P0 版移植）→ `ff_h264_init_poc` 算 POC → 填 `StdVideoDecodeH264PictureInfo`，同时按 `nNumSlices` / `pSliceDataOffsets` 提交完整 slice 集合。
+`decode()` 收到的 `CUVIDPICPARAMS.pBitstreamData` 是一个 access unit，可包含一个或多个 slice，仍用 FFmpeg `ff_h2645_packet_split` 切分并按 `nNumSlices` / `pSliceDataOffsets` 提交完整 slice 集合。
+
+当前有两条状态路径：
+
+- **CUVID parser 路径**：`CuvidParser` 在同步 `pfnDecodePicture` 作用域内提供 `H264DecodeContext`。后端直接使用共享 `H264Dpb` 的 POC、参考集合和 MMCO 结果，`setup_shared_dpb()` 维护 picture_index→Vulkan slot 映射并填写长期参考标记，不再重复执行本地 POC/MMCO。
+- **nvdec 直接路径**：没有该 context，暂时保留自写 `parse_slice_header`、`ff_h264_init_poc` 和本地 DPB 状态机，后续单独迁移。
 
 `CUVIDPICPARAMS` 里 SPS/PPS 派生字段（`log2_max_frame_num_minus4` 等）这里不依赖——两条来源最终都会重新 parse 成 `SPS*`/`PPS*`。原始 cache 保留完整参数集；合成路径只有 CUVID 可见字段。
 
@@ -333,7 +338,7 @@ VkFence 完成
 **DPB 关键差异**：
 
 - VAAPI VLD：应用手动管理参考帧，手写 DPB 状态机、`ReferenceFrames[]`、`RefPicList0/1[]`、显示序重排。
-- Vulkan Video：驱动内部管理 DPB。应用只需为每帧分配 DPB slot，并通过 `StdVideoDecodeH264PictureInfo` 告诉驱动参考关系；硬件按 SPS/PPS + 参考信息自行维护。VAAPI 版里大部分 DPB/RefPicList 代码可以删掉，但 `parse_slice_header` 和 POC 计算仍要保留，用来填 Std 结构。
+- Vulkan Video：驱动内部管理 DPB。应用只需为每帧分配 DPB slot，并通过 `StdVideoDecodeH264PictureInfo` 告诉驱动参考关系；硬件按 SPS/PPS + 参考信息自行维护。CUVID parser 路径现在由共享 `H264Dpb` 统一提供这些参考关系，nvdec 直接路径才保留后端本地 `parse_slice_header` 和 POC 计算。
 
 ### 9.5 可复用资源
 

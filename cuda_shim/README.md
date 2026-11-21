@@ -71,15 +71,22 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 | `CUVID_SHIM_TRACE_SURF=1` | 打印解码目标面与 map/unmap 顺序 |
 | `CUVID_DUMP_NV12_DIR=<dir>` | 每帧 dump NV12，用于和软解参考逐帧逐平面比对 |
 
-## 后端无关 DPB 组件（第一阶段）
+## 后端无关 DPB 与语法适配（第一 / 二阶段）
 
-`src/h264_dpb.{h,cpp}` 参考 `rocm-systems/projects/rocdecode` 的 AVC parser，实现 progressive frame 的 POC 0/1/2、MMCO 1–6、短期/长期参考、滑动窗口、参考列表重排和 POC 顺序输出。它只接收已解析的语法结构，不负责码流解析，也不依赖 VAAPI、Vulkan、HIP 或 FFmpeg。
+`src/h264_dpb.{h,cpp}` 参考 `rocm-systems/projects/rocdecode` 的 AVC parser，实现 progressive frame 的 POC 0/1/2、MMCO 1–6、短期/长期参考、滑动窗口、参考列表重排和 POC 顺序输出。它只接收已解析的语法结构，不依赖 VAAPI、Vulkan、HIP 或 FFmpeg。
+
+`src/h264_dpb_adapter.{h,cpp}` 把 FFmpeg SPS/PPS/slice header 或 `CUVIDH264PICPARAMS` 转成统一模型。CUVID 直接路径使用 `CurrFieldOrderCnt`，不会因缺少 POC1 cycle offsets 而重算错误的 POC。
 
 ```bash
-make -C cuda_shim check_h264_dpb
+make -C cuda_shim check_h264_dpb          # 纯状态机，仅 C++17
+make -C cuda_shim check_h264_dpb_adapter  # 语法适配 + 真实码流差分，需 FFmpeg 7.1
 ```
 
-该目标只覆盖纯状态机单元测试；组件尚未接入 `CuvidParser`、VAAPI/Vulkan 翻译或 FFmpeg 宿主，因此不能据此宣称长期参考帧或 POC type 1 已完成端到端闭环。
+适配测试覆盖合成 POC1/MMCO/List0/List1 slice header，以及 `testdata/h264` 的 12 路码流、242 帧 POC/参考列表/DPB 检查。可用 `H264_STREAM=test_p_b.h264` 限定单文件定位。
+
+2B-1 已让 `CuvidParser` 使用共享 DPB，并在同步 `pfnDecodePicture` 作用域内通过 `H264DecodeContext` 向 VAAPI 提供共享参考列表。`H264SurfaceTracker` 将 surface 从 display 一直保持到 unmap，关闭 display→map 窗口期的复用。
+
+2B-2 已在同一 context 下用共享 DPB 驱动 Vulkan reference slots：`setup_shared_dpb()` 负责 picture_index→slot 映射和长期参考标记，不再重复执行本地 POC/MMCO。两个后端的现有宿主、PTS、复杂场景、动态分辨率和多流回归均通过。nvdec 没有该 context 时仍走原 CUVID DPB/本地状态机；现有 242 帧差分语料中 LTR、MMCO5 和真实 POC1 均为 0，因此这些能力仍需专用码流做端到端验收。
 
 ## 状态与边界
 

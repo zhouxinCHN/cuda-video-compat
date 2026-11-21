@@ -164,6 +164,13 @@ const H264Picture &stored(const H264Dpb &dpb, int picture_index) {
     throw std::runtime_error("picture not stored: " + std::to_string(picture_index));
 }
 
+bool is_stored(const H264Dpb &dpb, int picture_index) {
+    return std::any_of(dpb.pictures().begin(), dpb.pictures().end(),
+                       [picture_index](const H264Picture &picture) {
+                           return picture.picture_index == picture_index;
+                       });
+}
+
 void test_surface_exhaustion() {
     H264Dpb dpb;
     H264Sequence invalid = sequence();
@@ -262,6 +269,7 @@ void test_poc1_cycle_and_wrap() {
 void test_poc2_nonreference_and_wrap() {
     H264Sequence config = sequence(2, 2, 4);
     config.log2_max_frame_num = 4;
+    config.log2_max_poc_lsb = 0; // Not present in POC type 2 SPS.
     H264Dpb dpb;
     require_status(dpb.reset(config), H264DpbStatus::kOk, "POC2 reset");
     require(decode(dpb, idr(), 0).poc == 0, "POC2 IDR");
@@ -287,8 +295,7 @@ void test_sliding_window_preserves_long_term() {
     decode(dpb, slice(H264SliceType::kP, 2, 4), 2);
     require(stored(dpb, 0).reference == H264ReferenceType::kLongTerm,
             "sliding window must preserve LTR");
-    require(stored(dpb, 1).reference == H264ReferenceType::kUnused,
-            "sliding window evicts oldest short-term reference");
+    require(!is_stored(dpb, 1), "sliding window removes oldest short-term reference");
     require(stored(dpb, 2).reference == H264ReferenceType::kShortTerm,
             "current picture inserted as short-term");
 
@@ -320,8 +327,7 @@ void test_mmco_operations_and_rollback() {
     operation.mmco = {mmco(2)};
     operation.mmco[0].long_term_pic_num = 1;
     decode(dpb, operation, 4);
-    require(stored(dpb, 1).reference == H264ReferenceType::kUnused,
-            "MMCO2 releases long-term reference");
+    require(!is_stored(dpb, 1), "MMCO2 removes long-term reference");
 
     operation = slice(H264SliceType::kP, 5, 10);
     operation.adaptive_ref_pic_marking = true;
@@ -335,15 +341,13 @@ void test_mmco_operations_and_rollback() {
     operation.adaptive_ref_pic_marking = true;
     operation.mmco = {set_max_long(0)};
     decode(dpb, operation, 6);
-    require(stored(dpb, 5).reference == H264ReferenceType::kUnused,
-            "MMCO4 zero releases every long-term reference");
+    require(!is_stored(dpb, 5), "MMCO4 zero removes every long-term reference");
 
     operation = slice(H264SliceType::kP, 7, 14);
     operation.adaptive_ref_pic_marking = true;
     operation.mmco = {mmco(1)};
     decode(dpb, operation, 7);
-    require(stored(dpb, 6).reference == H264ReferenceType::kUnused,
-            "MMCO1 releases selected short-term reference");
+    require(!is_stored(dpb, 6), "MMCO1 removes selected short-term reference");
 
     const std::size_t old_size = dpb.pictures().size();
     operation = slice(H264SliceType::kP, 8, 0);
@@ -410,17 +414,52 @@ void test_short_modification_wrap_and_missing_reference() {
                    H264DpbStatus::kReferenceNotFound, "missing modified reference");
 }
 
+void test_duplicate_modified_references() {
+    H264Dpb dpb;
+    require_status(dpb.reset(sequence()), H264DpbStatus::kOk, "duplicate refs reset");
+    decode(dpb, idr(), 0);
+    decode(dpb, slice(H264SliceType::kP, 1, 2), 1);
+    decode(dpb, slice(H264SliceType::kP, 2, 4), 2);
+
+    H264Slice current_slice = slice(H264SliceType::kP, 3, 6);
+    current_slice.num_ref_idx_active[0] = 4;
+    current_slice.modifications[0] = {
+        short_mod(0, 1), short_mod(0, 15), short_mod(1, 0), short_mod(0, 1),
+    };
+    H264Picture current = begin(dpb, current_slice, 3);
+    expect_indices(references(dpb, current_slice, current, 0, 4), {1, 1, 2, 0},
+                   "modifications may repeat a DPB reference");
+}
+
+void test_b_display_order_with_zero_delay() {
+    H264Dpb dpb;
+    require_status(dpb.reset(sequence()), H264DpbStatus::kOk, "B display reset");
+    decode(dpb, idr(), 0);
+    expect_outputs(dpb.take_outputs(0), {}, "IDR has no older output");
+    decode(dpb, slice(H264SliceType::kP, 1, 8), 1);
+    expect_outputs(dpb.take_outputs(0), {0}, "future P releases IDR");
+    decode(dpb, slice(H264SliceType::kB, 2, 4), 2);
+    expect_outputs(dpb.take_outputs(0), {}, "B4 is not older than itself");
+    decode(dpb, slice(H264SliceType::kB, 3, 2, false), 3);
+    expect_outputs(dpb.take_outputs(0), {}, "B2 does not release newer references");
+    decode(dpb, slice(H264SliceType::kB, 3, 6, false), 4);
+    expect_outputs(dpb.take_outputs(0), {3, 2}, "B6 releases B2 then B4");
+    require_status(dpb.drain(), H264DpbStatus::kOk, "B display drain");
+    expect_outputs(dpb.take_outputs(0, true), {4, 1}, "EOS releases B6 then P8");
+}
+
 void test_output_delay_drain_and_idr_discard() {
     H264Dpb dpb;
     require_status(dpb.reset(sequence(0, 1, 2)), H264DpbStatus::kOk, "output reset");
     decode(dpb, idr(), 0);
     decode(dpb, slice(H264SliceType::kP, 1, 2), 1);
     decode(dpb, slice(H264SliceType::kB, 2, 4, false), 2);
-    expect_outputs(dpb.take_outputs(1), {}, "display delay retains one output");
+    expect_outputs(dpb.take_outputs(1), {0}, "display delay retains newest eligible output");
     decode(dpb, slice(H264SliceType::kP, 3, 6), 3);
-    expect_outputs(dpb.take_outputs(1), {0}, "display delay releases oldest output");
+    expect_outputs(dpb.take_outputs(1), {1}, "display delay releases one older output");
     require_status(dpb.drain(), H264DpbStatus::kOk, "EOS drain");
-    expect_outputs(dpb.take_outputs(0, true), {1, 2, 3}, "EOS POC order");
+    expect_outputs(dpb.take_outputs(4, true), {2, 3},
+                   "EOS flush ignores display delay");
 
     require_status(dpb.reset(sequence()), H264DpbStatus::kOk, "IDR discard reset");
     decode(dpb, idr(), 0);
@@ -447,6 +486,8 @@ int main() {
          test_b_list_order_and_independent_modifications},
         {"short_modification_wrap_and_missing_reference",
          test_short_modification_wrap_and_missing_reference},
+        {"duplicate_modified_references", test_duplicate_modified_references},
+        {"b_display_order_with_zero_delay", test_b_display_order_with_zero_delay},
         {"output_delay_drain_and_idr_discard", test_output_delay_drain_and_idr_discard},
     };
 

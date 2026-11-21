@@ -24,7 +24,7 @@ HIPCC_EXTRA  ?=
 #   make VULKAN_LIB=-l:libvulkan.so.1
 VULKAN_LIB   ?= -lvulkan
 
-all: libcuda.so.1 libnvcuvid.so.1 verify_symbols verify_cuvid_symbols verify_cuvid_session verify_cuvid_parser verify_h264_dpb test_func test_func_full
+all: libcuda.so.1 libnvcuvid.so.1 verify_symbols verify_cuvid_symbols verify_cuvid_session verify_cuvid_parser verify_h264_dpb verify_h264_dpb_adapter test_func test_func_full
 
 # 生成带 soname 的 libcuda.so.1，并建 libcuda.so 开发软链（-lcuda 需要）
 libcuda.so.1: src/libcuda.cpp include/cuda_shim_types.h
@@ -32,9 +32,11 @@ libcuda.so.1: src/libcuda.cpp include/cuda_shim_types.h
 	ln -sf libcuda.so.1 libcuda.so
 
 NVCUVID_SRC := src/libnvcuvid.cpp src/vaapi_h264_decoder.cpp src/hip_frame_mapper.cpp \
-	src/h264_picture_translate.cpp src/h264_direct_params.cpp src/cuvid_parser.cpp \
+	src/h264_dpb.cpp src/h264_dpb_adapter.cpp src/h264_picture_translate.cpp \
+	src/h264_direct_params.cpp src/cuvid_parser.cpp \
 	src/backend_dispatch.cpp src/vulkan_h264_decoder.cpp
 NVCUVID_HEADERS := src/vaapi_h264_decoder.h src/hip_frame_mapper.h src/h264_picture_translate.h \
+	src/h264_dpb.h src/h264_dpb_adapter.h src/h264_decode_context.h src/h264_surface_tracker.h \
 	src/h264_direct_params.h src/cuvid_parser.h src/h264_bit_reader.h \
 	src/decoder_backend.h src/backend_dispatch.h src/vulkan_h264_decoder.h src/vk_sequence_cache.h
 
@@ -81,6 +83,17 @@ verify_h264_dpb: tests/verify_h264_dpb.cpp src/h264_dpb.cpp src/h264_dpb.h
 	$(CXX) -std=c++17 -Wall -Wextra -Wpedantic -Werror -Isrc \
 		tests/verify_h264_dpb.cpp src/h264_dpb.cpp -o $@
 
+# FFmpeg/CUVID 语法适配 + 真实码流 POC/DPB 差分（CPU，无 GPU）。
+verify_h264_dpb_adapter: tests/verify_h264_dpb_adapter.cpp \
+		src/h264_dpb.cpp src/h264_dpb.h src/h264_dpb_adapter.cpp src/h264_dpb_adapter.h \
+		$(FF_OBJ_FILES) $(AVUTIL_LIB)
+	$(CXX) -std=c++17 -Wall -Wextra -Wpedantic -Werror \
+		-Wno-register -Wno-unused-parameter -Wno-sign-compare \
+		-Isrc -I$(NVCODEC_DIR) -I$(FFMPEG_DIR) \
+		tests/verify_h264_dpb_adapter.cpp src/h264_dpb.cpp src/h264_dpb_adapter.cpp \
+		$(FF_OBJ_FILES) -o $@ -L$(FFMPEG_DIR)/libavutil -lavutil \
+		-lz -lm -lpthread -ldl -Wl,-rpath,$(abspath $(FFMPEG_DIR)/libavutil)
+
 # mapped dev_ptr 的 kernel 可访问性 + 真实 event 顺序验证。
 # 需要 libnvcuvid 中已实现的 parser/decoder；测试本身只链接 CUVID + HIP。
 verify_kernel_read: tests/verify_kernel_read.cpp libnvcuvid.so.1
@@ -98,13 +111,17 @@ test_func: tests/test_func.cpp libcuda.so.1
 test_func_full: tests/test_func_full.cpp libcuda.so.1
 	$(CXX) -std=c++17 -I$(NVCODEC_DIR) $< -o $@ -L. -lcuda -Wl,-rpath,$(abspath .)
 
-check: verify_symbols verify_cuvid_symbols verify_h264_dpb libcuda.so.1 libnvcuvid.so.1
+check: verify_symbols verify_cuvid_symbols verify_h264_dpb verify_h264_dpb_adapter libcuda.so.1 libnvcuvid.so.1
 	./verify_symbols ./libcuda.so.1
 	./verify_cuvid_symbols ./libnvcuvid.so.1
 	./verify_h264_dpb
+	./verify_h264_dpb_adapter
 
 check_h264_dpb: verify_h264_dpb
 	./verify_h264_dpb
+
+check_h264_dpb_adapter: verify_h264_dpb_adapter
+	./verify_h264_dpb_adapter
 
 check_func: test_func_full
 	./test_func_full
@@ -139,6 +156,7 @@ check_parser: parser_reuse
 clean:
 	rm -f libcuda.so.1 libcuda.so libnvcuvid.so.1 libnvcuvid.so \
 		verify_symbols verify_cuvid_symbols verify_cuvid_session \
-		verify_cuvid_parser verify_kernel_read verify_h264_dpb test_func test_func_full parser_reuse
+		verify_cuvid_parser verify_kernel_read verify_h264_dpb verify_h264_dpb_adapter \
+		test_func test_func_full parser_reuse
 
-.PHONY: all check check_h264_dpb check_func check_func_smoke parser_reuse check_parser clean
+.PHONY: all check check_h264_dpb check_h264_dpb_adapter check_func check_func_smoke parser_reuse check_parser clean

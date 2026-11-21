@@ -1,5 +1,6 @@
 #include "vaapi_h264_decoder.h"
 #include "h264_picture_translate.h"
+#include "h264_decode_context.h"
 
 #include <va/va_drm.h>
 #include <va/va_drmcommon.h>
@@ -40,7 +41,8 @@ CUresult VaapiH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     }
 
     VaH264Picture translated;
-    CUresult result = translate_h264_picture(picture, surfaces_, &translated);
+    CUresult result = translate_h264_picture(picture, surfaces_, &translated,
+                                             ScopedH264DecodeContext::current());
     if (result != CUDA_SUCCESS) return result;
 
     // 临时调试：把目标 surface 固定到指定下标，验证"下标越界/驱动限制"假设

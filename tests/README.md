@@ -17,6 +17,9 @@
 # 后端无关 progressive H.264 DPB 状态机（CPU，仅 C++17）
 make -C cuda_shim check_h264_dpb
 
+# FFmpeg/CUVID 语法适配与真实码流差分（CPU，需 FFmpeg 7.1 构建产物）
+make -C cuda_shim check_h264_dpb_adapter
+
 # 1. parser 复用（CPU）
 cd tests/parser
 make -f verify_parser_reuse.make

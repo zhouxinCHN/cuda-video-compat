@@ -9,6 +9,8 @@
 #include "hip_frame_mapper.h"
 #include "backend_dispatch.h"
 #include "cuvid_parser.h"
+#include "h264_decode_context.h"
+#include "h264_surface_tracker.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -39,6 +41,7 @@ struct DecoderState {
     std::unordered_map<unsigned long long, HipFrameMapping> mappings;
     std::unordered_map<int, unsigned long long> mapped_indices;
     std::vector<CUVIDGETDECODESTATUS> statuses;
+    const void *dpb_owner = nullptr;
 };
 
 std::mutex decoders_mutex;
@@ -130,6 +133,7 @@ CUresult CUDAAPI cuvidDestroyDecoder(CUvideodecoder handle) {
         decoders.erase(it);
     }
     std::lock_guard<std::mutex> guard(state->mutex);
+    cuvid_shim::H264SurfaceTracker::clear(state->dpb_owner);
     state->mappings.clear();
     state->mapped_indices.clear();
     state->backend->reset();
@@ -159,6 +163,11 @@ CUresult CUDAAPI cuvidDecodePicture(CUvideodecoder handle, CUVIDPICPARAMS *pictu
         return CUDA_ERROR_INVALID_VALUE;
     }
     if (state->mapped_indices.count(picture->CurrPicIdx)) return CUDA_ERROR_INVALID_VALUE;
+    if (const cuvid_shim::H264DecodeContext *context =
+            cuvid_shim::ScopedH264DecodeContext::current();
+        context && context->owner) {
+        state->dpb_owner = context->owner;
+    }
     state->statuses[picture->CurrPicIdx].decodeStatus = cuvidDecodeStatus_InProgress;
     CUresult result = state->backend->decode(*picture);
     if (result != CUDA_SUCCESS) {
@@ -236,7 +245,9 @@ CUresult CUDAAPI cuvidUnmapVideoFrame64(CUvideodecoder handle, unsigned long lon
             if (std::getenv("CUVID_SHIM_TRACE_SURF")) {
                 std::fprintf(stderr, "SHIM UNMAP idx=%d\n", it->first);
             }
+            const int picture_index = it->first;
             state->mapped_indices.erase(it);
+            cuvid_shim::H264SurfaceTracker::mark(state->dpb_owner, picture_index, false);
             break;
         }
     }

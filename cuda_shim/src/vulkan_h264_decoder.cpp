@@ -1,6 +1,7 @@
 #include "vulkan_h264_decoder.h"
 
 #include "hip_frame_mapper.h"
+#include "h264_decode_context.h"
 #include "h264_direct_params.h"
 #include "vk_sequence_cache.h"
 
@@ -1153,6 +1154,105 @@ CUresult VulkanH264Decoder::ensure_session() {
 // decode
 // ===========================================================================
 
+CUresult VulkanH264Decoder::setup_shared_dpb(const H264DecodeContext &context,
+                                             int picture_index, int *setup_slot,
+                                             std::vector<DpbEntry> *references) {
+    if (!setup_slot || !references || !context.dpb || !context.picture ||
+        picture_index < 0) {
+        return CUDA_ERROR_INVALID_VALUE;
+    }
+    const auto old_dpb = dpb_;
+    const auto old_free = free_dpb_slots_;
+    std::vector<DpbEntry> needed;
+    for (const H264Picture &picture : context.dpb->pictures()) {
+        if (picture.reference == H264ReferenceType::kUnused) continue;
+        if (picture.picture_index == picture_index) return CUDA_ERROR_INVALID_VALUE;
+        DpbEntry entry;
+        entry.picture_index = picture.picture_index;
+        entry.frame_num = picture.frame_num;
+        entry.field_poc[0] = picture.top_field_order_cnt;
+        entry.field_poc[1] = picture.bottom_field_order_cnt;
+        entry.long_term = picture.reference == H264ReferenceType::kLongTerm;
+        entry.long_term_frame_idx = static_cast<int>(picture.long_term_frame_idx);
+        needed.push_back(entry);
+    }
+
+    const auto has_picture = [](const std::vector<DpbEntry> &entries, int index) {
+        return std::any_of(entries.begin(), entries.end(), [index](const DpbEntry &entry) {
+            return entry.picture_index == index;
+        });
+    };
+    for (const DpbEntry &old : dpb_) {
+        if (!has_picture(needed, old.picture_index) && old.picture_index != picture_index) {
+            free_dpb_slots_.push_back(old.slot);
+        }
+    }
+    const auto acquire_slot = [this]() {
+        if (free_dpb_slots_.empty()) return -1;
+        const auto iterator = std::min_element(free_dpb_slots_.begin(), free_dpb_slots_.end());
+        const int slot = *iterator;
+        free_dpb_slots_.erase(iterator);
+        return slot;
+    };
+
+    std::vector<DpbEntry> next;
+    for (DpbEntry entry : needed) {
+        const auto existing = std::find_if(dpb_.begin(), dpb_.end(),
+                                           [&entry](const DpbEntry &candidate) {
+                                               return candidate.picture_index == entry.picture_index;
+                                           });
+        if (existing != dpb_.end()) {
+            entry.slot = existing->slot;
+        } else {
+            entry.slot = acquire_slot();
+            if (entry.slot < 0) {
+                dpb_ = old_dpb;
+                free_dpb_slots_ = old_free;
+                return CUDA_ERROR_OUT_OF_MEMORY;
+            }
+        }
+        next.push_back(entry);
+    }
+
+    DpbEntry current;
+    current.picture_index = picture_index;
+    current.frame_num = context.picture->frame_num;
+    current.field_poc[0] = context.picture->top_field_order_cnt;
+    current.field_poc[1] = context.picture->bottom_field_order_cnt;
+    current.long_term = context.slice && context.slice->long_term_reference_flag;
+    if (context.slice) {
+        for (const H264Mmco &operation : context.slice->mmco) {
+            if (operation.opcode == 6) {
+                current.long_term = true;
+                current.long_term_frame_idx = static_cast<int>(operation.long_term_frame_idx);
+            }
+        }
+    }
+    const auto existing = std::find_if(dpb_.begin(), dpb_.end(),
+                                       [picture_index](const DpbEntry &candidate) {
+                                           return candidate.picture_index == picture_index;
+                                       });
+    if (existing != dpb_.end()) {
+        current.slot = existing->slot;
+    } else {
+        current.slot = acquire_slot();
+        if (current.slot < 0) {
+            dpb_ = old_dpb;
+            free_dpb_slots_ = old_free;
+            return CUDA_ERROR_OUT_OF_MEMORY;
+        }
+    }
+    *setup_slot = current.slot;
+    next.push_back(current);
+
+    references->clear();
+    for (const DpbEntry &entry : next) {
+        if (entry.picture_index != picture_index) references->push_back(entry);
+    }
+    dpb_ = std::move(next);
+    return CUDA_SUCCESS;
+}
+
 CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     auto dbg = [](const char *s) { if (std::getenv("CUVID_SHIM_DEBUG_VK")) std::fprintf(stderr, "[vk-decode] %s\n", s); };
     if (device_lost_) return CUDA_ERROR_UNKNOWN;   // 已经挂过：不要再往死掉的 device 提交
@@ -1160,6 +1260,10 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     // transfer 队列的导出拷贝、不用跨队列 semaphore。用来区分"解码参数问题"
     // 和"多队列同步问题"。
     const bool nocopy = std::getenv("CUVID_SHIM_NOCOPY") != nullptr;
+    const H264DecodeContext *shared = ScopedH264DecodeContext::current();
+    if (shared && (!shared->dpb || !shared->slice || !shared->picture)) {
+        return CUDA_ERROR_INVALID_VALUE;
+    }
 
     // h264_nvdec 不经过 cuvidParseVideoData：参数集只能从 CUVIDPICPARAMS
     // 重建；h264_cuvid 仍优先使用 CuvidParser 缓存的原始 SPS/PPS。
@@ -1252,38 +1356,61 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     }
     if (!slice_nal) { dbg("no slice NAL found"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported; }
 
-    SliceInfo si;
-    if (!parse_slice_header(slice_nal, sps, pps, &si)) {
-        dbg("slice header parse failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
-    }
-
-    // --- 2. POC computation (state persists across decode() calls) ---
-    poc_ctx_.frame_num = si.frame_num;
-    poc_ctx_.poc_lsb = si.poc_lsb;
-    poc_ctx_.delta_poc_bottom = si.delta_poc_bottom;
-    poc_ctx_.delta_poc[0] = si.delta_poc[0];
-    poc_ctx_.delta_poc[1] = si.delta_poc[1];
+    SliceInfo si = {};
     int field_poc[2] = {0, 0};
-    int pic_poc = 0;
-    if (ff_h264_init_poc(field_poc, &pic_poc, sps, &poc_ctx_, PICT_FRAME, si.nal_ref_idc) < 0) {
-        dbg("ff_h264_init_poc failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
+    if (shared) {
+        si.nal_type = shared->slice->is_idr ? H264_NAL_IDR_SLICE : H264_NAL_SLICE;
+        si.nal_ref_idc = shared->slice->is_reference ? 1 : 0;
+        si.slice_type_nos = shared->slice->type == H264SliceType::kI ? AV_PICTURE_TYPE_I
+                            : shared->slice->type == H264SliceType::kP ? AV_PICTURE_TYPE_P
+                                                                       : AV_PICTURE_TYPE_B;
+        si.frame_num = static_cast<int>(shared->picture->frame_num);
+        si.idr_pic_id = static_cast<int>(shared->slice->idr_pic_id);
+        si.ref_count[0] = static_cast<int>(shared->slice->num_ref_idx_active[0]);
+        si.ref_count[1] = static_cast<int>(shared->slice->num_ref_idx_active[1]);
+        field_poc[0] = shared->picture->top_field_order_cnt;
+        field_poc[1] = shared->picture->bottom_field_order_cnt;
+    } else {
+        if (!parse_slice_header(slice_nal, sps, pps, &si)) {
+            dbg("slice header parse failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
+        }
+
+        // Direct path: retain local POC computation until its separate migration.
+        poc_ctx_.frame_num = si.frame_num;
+        poc_ctx_.poc_lsb = si.poc_lsb;
+        poc_ctx_.delta_poc_bottom = si.delta_poc_bottom;
+        poc_ctx_.delta_poc[0] = si.delta_poc[0];
+        poc_ctx_.delta_poc[1] = si.delta_poc[1];
+        int pic_poc = 0;
+        if (ff_h264_init_poc(field_poc, &pic_poc, sps, &poc_ctx_, PICT_FRAME, si.nal_ref_idc) < 0) {
+            dbg("ff_h264_init_poc failed"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return kNotSupported;
+        }
+        if (si.nal_ref_idc != 0) {
+            poc_ctx_.prev_poc_msb = poc_ctx_.poc_msb;
+            poc_ctx_.prev_poc_lsb = poc_ctx_.poc_lsb;
+        }
+        poc_ctx_.prev_frame_num = poc_ctx_.frame_num;
+        poc_ctx_.prev_frame_num_offset = poc_ctx_.frame_num_offset;
+        (void)pic_poc;
     }
-    if (si.nal_ref_idc != 0) {
-        poc_ctx_.prev_poc_msb = poc_ctx_.poc_msb;
-        poc_ctx_.prev_poc_lsb = poc_ctx_.poc_lsb;
-    }
-    poc_ctx_.prev_frame_num = poc_ctx_.frame_num;
-    poc_ctx_.prev_frame_num_offset = poc_ctx_.frame_num_offset;
-    (void)pic_poc;
 
     // --- 3. allocate DPB slot for the current (setup) picture ---
-    if (free_dpb_slots_.empty()) { dbg("no free DPB slots"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_OUT_OF_MEMORY; }
-    // E2: 升序分配（0,1,2,...）。FFmpeg h264_vulkan 的 slotIndex 就是 h->DPB 下标
-    // 0..15，而原来用 back() 得到 16,15,14,... 的 LIFO 顺序，slotIndex 挤在
-    // [maxDpbSlots-1 ..] 一侧（radv 的 ref_frame_list[]/16 位掩码边界就在 16）。
-    const auto it_min = std::min_element(free_dpb_slots_.begin(), free_dpb_slots_.end());
-    const int setup_slot = *it_min;
-    free_dpb_slots_.erase(it_min);
+    int setup_slot = -1;
+    std::vector<DpbEntry> shared_references;
+    if (shared) {
+        const CUresult status = setup_shared_dpb(*shared, picture.CurrPicIdx,
+                                                 &setup_slot, &shared_references);
+        if (status != CUDA_SUCCESS) {
+            ff_h2645_packet_uninit(&slice_pkt);
+            ff_h264_ps_uninit(&ps);
+            return status;
+        }
+    } else {
+        if (free_dpb_slots_.empty()) { dbg("no free DPB slots"); ff_h2645_packet_uninit(&slice_pkt); ff_h264_ps_uninit(&ps); return CUDA_ERROR_OUT_OF_MEMORY; }
+        const auto it_min = std::min_element(free_dpb_slots_.begin(), free_dpb_slots_.end());
+        setup_slot = *it_min;
+        free_dpb_slots_.erase(it_min);
+    }
 
     // --- 4. build reference slots from current DPB ---
     std::vector<VkVideoReferenceSlotInfoKHR> ref_slots;
@@ -1294,13 +1421,15 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
     ref_res.reserve(dpb_images_.size());
     ref_dpb.reserve(dpb_images_.size());
     ref_std.reserve(dpb_images_.size());
-    for (const auto &e : dpb_) {
+    const std::vector<DpbEntry> &reference_entries = shared ? shared_references : dpb_;
+    for (const auto &e : reference_entries) {
         StdVideoDecodeH264ReferenceInfo rs = {};
-        rs.FrameNum = static_cast<uint16_t>(e.frame_num);
+        rs.FrameNum = static_cast<uint16_t>(e.long_term ? e.long_term_frame_idx : e.frame_num);
         rs.PicOrderCnt[0] = e.field_poc[0];
         rs.PicOrderCnt[1] = e.field_poc[1];
         rs.flags.top_field_flag = 1;
         rs.flags.bottom_field_flag = 1;
+        rs.flags.used_for_long_term_reference = e.long_term ? 1 : 0;
         ref_std.push_back(rs);
 
         VkVideoDecodeH264DpbSlotInfoKHR rd = {};
@@ -1323,12 +1452,15 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         ref_slots.push_back(sl);
     }
     // --- 5. setup reference slot (current picture) ---
+    const bool setup_long_term = shared && !dpb_.empty() && dpb_.back().long_term;
     StdVideoDecodeH264ReferenceInfo setup_std = {};
-    setup_std.FrameNum = static_cast<uint16_t>(si.frame_num);
+    setup_std.FrameNum = static_cast<uint16_t>(
+        setup_long_term ? dpb_.back().long_term_frame_idx : si.frame_num);
     setup_std.PicOrderCnt[0] = field_poc[0];
     setup_std.PicOrderCnt[1] = field_poc[1];
     setup_std.flags.top_field_flag = 1;
     setup_std.flags.bottom_field_flag = 1;
+    setup_std.flags.used_for_long_term_reference = setup_long_term ? 1 : 0;
     if (std::getenv("CUVID_SHIM_DEBUG_VK")) {
         std::fprintf(stderr,
                      "[vk-decode] #%u type=%d poc=%d fn=%d ref=%d rc0=%d rc1=%d setup_slot=%d "
@@ -1672,38 +1804,41 @@ CUresult VulkanH264Decoder::decode(const CUVIDPICPARAMS &picture) {
         }
     }
 
-    // --- 12. DPB update (IDR clear / MMCO / sliding window / insert) ---
-    if (si.nal_type == H264_NAL_IDR_SLICE) {
-        for (auto &e : dpb_) free_dpb_slots_.push_back(e.slot);
-        dpb_.clear();
-        poc_ctx_.prev_frame_num = 0;
-        poc_ctx_.prev_frame_num_offset = 0;
-        poc_ctx_.prev_poc_msb = 0;
-        poc_ctx_.prev_poc_lsb = -1;
-    } else if (si.nal_ref_idc != 0) {
-        for (int i = 0; i < si.nb_mmco; i++) {
-            if (si.mmco[i].opcode == MMCO_SHORT2UNUSED) {
-                const int fn = si.mmco[i].short_pic_num;
-                for (auto it = dpb_.begin(); it != dpb_.end(); ++it) {
-                    if (it->frame_num == fn) { free_dpb_slots_.push_back(it->slot); dpb_.erase(it); break; }
+    // --- 12. Direct-path DPB update (shared parser path is already reconciled) ---
+    if (!shared) {
+        if (si.nal_type == H264_NAL_IDR_SLICE) {
+            for (auto &e : dpb_) free_dpb_slots_.push_back(e.slot);
+            dpb_.clear();
+            poc_ctx_.prev_frame_num = 0;
+            poc_ctx_.prev_frame_num_offset = 0;
+            poc_ctx_.prev_poc_msb = 0;
+            poc_ctx_.prev_poc_lsb = -1;
+        } else if (si.nal_ref_idc != 0) {
+            for (int i = 0; i < si.nb_mmco; i++) {
+                if (si.mmco[i].opcode == MMCO_SHORT2UNUSED) {
+                    const int fn = si.mmco[i].short_pic_num;
+                    for (auto it = dpb_.begin(); it != dpb_.end(); ++it) {
+                        if (it->frame_num == fn) { free_dpb_slots_.push_back(it->slot); dpb_.erase(it); break; }
+                    }
                 }
             }
+            if (!si.explicit_ref_marking && static_cast<int>(dpb_.size()) >= sps->ref_frame_count && !dpb_.empty()) {
+                free_dpb_slots_.push_back(dpb_.back().slot);
+                dpb_.pop_back();
+            }
         }
-        if (!si.explicit_ref_marking && static_cast<int>(dpb_.size()) >= sps->ref_frame_count && !dpb_.empty()) {
-            free_dpb_slots_.push_back(dpb_.back().slot);
-            dpb_.pop_back();
-        }
-    }
 
-    if (si.nal_ref_idc != 0) {
-        DpbEntry e;
-        e.slot = setup_slot;
-        e.frame_num = si.frame_num;
-        e.field_poc[0] = field_poc[0];
-        e.field_poc[1] = field_poc[1];
-        dpb_.insert(dpb_.begin(), e);
-    } else {
-        free_dpb_slots_.push_back(setup_slot);   // non-reference (B) recycles its temp slot
+        if (si.nal_ref_idc != 0) {
+            DpbEntry e;
+            e.slot = setup_slot;
+            e.picture_index = picture.CurrPicIdx;
+            e.frame_num = si.frame_num;
+            e.field_poc[0] = field_poc[0];
+            e.field_poc[1] = field_poc[1];
+            dpb_.insert(dpb_.begin(), e);
+        } else {
+            free_dpb_slots_.push_back(setup_slot);   // non-reference (B) recycles its temp slot
+        }
     }
 
     decode_order_++;

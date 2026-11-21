@@ -70,10 +70,17 @@ struct H264Slice {
     bool is_idr = false;
     bool is_reference = false;
     uint32_t frame_num = 0;
+    uint32_t idr_pic_id = 0;
 
     uint32_t poc_lsb = 0;
     int32_t delta_poc_bottom = 0;
     int32_t delta_poc[2] = {0, 0};
+
+    // h264_nvdec supplies CurrFieldOrderCnt but CUVIDH264PICPARAMS lacks the
+    // POC-type-1 cycle offsets. In that path use FFmpeg's POC instead of
+    // reconstructing it from incomplete SPS information.
+    bool has_poc_override = false;
+    int32_t poc_override[2] = {0, 0};
 
     bool output_flag = true;
     bool no_output_of_prior_pics = false;
@@ -143,8 +150,10 @@ public:
     // Queues every remaining output in POC order and releases all DPB entries.
     H264DpbStatus drain();
 
-    // Returns pending.size - max_display_delay entries, or all when flush=true.
-    // Once returned, the caller owns output lifetime through map/unmap tracking.
+    // Releases only outputs older than the latest decoded POC (previous POC
+    // sequences are always eligible), then retains max_display_delay of those
+    // eligible outputs. flush=true releases everything. This preserves display
+    // order even when ulMaxDisplayDelay is zero.
     std::vector<H264Output> take_outputs(std::size_t max_display_delay,
                                          bool flush = false);
 
@@ -193,6 +202,8 @@ private:
 
     bool picture_active_ = false;
     uint64_t sequence_id_ = 0;
+    uint64_t latest_sequence_id_ = 0;
+    int latest_poc_ = 0;
     int active_poc_msb_ = 0;
     int active_frame_num_offset_ = 0;
 };

@@ -1,4 +1,5 @@
 #include "h264_picture_translate.h"
+#include "h264_decode_context.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -478,11 +479,36 @@ bool fill_reference_list(VAPictureH264 *destination, const std::vector<Reference
     return true;
 }
 
+bool fill_shared_reference_list(VAPictureH264 *destination,
+                                const std::vector<H264Reference> &references,
+                                int count, const std::vector<VASurfaceID> &surfaces) {
+    if (count < 0 || count > 32 || references.size() != static_cast<std::size_t>(count)) {
+        return false;
+    }
+    for (int index = 0; index < count; ++index) {
+        const H264Reference &reference = references[index];
+        if (reference.picture_index < 0 ||
+            static_cast<std::size_t>(reference.picture_index) >= surfaces.size()) {
+            return false;
+        }
+        VAPictureH264 picture = {};
+        picture.picture_id = surfaces[reference.picture_index];
+        picture.frame_idx = reference.frame_idx;
+        picture.flags = reference.is_long_term ? VA_PICTURE_H264_LONG_TERM_REFERENCE
+                                               : VA_PICTURE_H264_SHORT_TERM_REFERENCE;
+        picture.TopFieldOrderCnt = reference.poc;
+        picture.BottomFieldOrderCnt = reference.poc;
+        destination[index] = picture;
+    }
+    return true;
+}
+
 } // namespace
 
 CUresult translate_h264_picture(const CUVIDPICPARAMS &input,
                                 const std::vector<VASurfaceID> &surfaces,
-                                VaH264Picture *output) {
+                                VaH264Picture *output,
+                                const H264DecodeContext *context) {
     if (!output || !input.pBitstreamData || !input.pSliceDataOffsets ||
         input.nNumSlices == 0 || input.nNumSlices > 4096 || input.CurrPicIdx < 0 ||
         static_cast<std::size_t>(input.CurrPicIdx) >= surfaces.size() ||
@@ -499,9 +525,23 @@ CUresult translate_h264_picture(const CUVIDPICPARAMS &input,
 
     *output = {};
     auto &parameters = output->parameters;
+    bool current_long_term = false;
+    int current_frame_idx = h264.frame_num;
+    if (context && context->slice) {
+        current_long_term = context->slice->long_term_reference_flag;
+        for (const H264Mmco &operation : context->slice->mmco) {
+            if (operation.opcode == 6) {
+                current_long_term = true;
+                current_frame_idx = static_cast<int>(operation.long_term_frame_idx);
+            }
+        }
+    }
     parameters.CurrPic.picture_id = surfaces[input.CurrPicIdx];
-    parameters.CurrPic.frame_idx = h264.frame_num;
-    parameters.CurrPic.flags = input.ref_pic_flag ? VA_PICTURE_H264_SHORT_TERM_REFERENCE : 0;
+    parameters.CurrPic.frame_idx = current_frame_idx;
+    parameters.CurrPic.flags = input.ref_pic_flag
+                                   ? (current_long_term ? VA_PICTURE_H264_LONG_TERM_REFERENCE
+                                                        : VA_PICTURE_H264_SHORT_TERM_REFERENCE)
+                                   : 0;
     parameters.CurrPic.TopFieldOrderCnt = h264.CurrFieldOrderCnt[0];
     parameters.CurrPic.BottomFieldOrderCnt = h264.CurrFieldOrderCnt[1];
     // 未被 DPB 使用的槽必须显式标 INVALID，否则驱动会把 0 值槽当成有效短参考。
@@ -658,9 +698,41 @@ CUresult translate_h264_picture(const CUVIDPICPARAMS &input,
 
         std::vector<ReferenceKey> list0;
         std::vector<ReferenceKey> list1;
-        if (header.slice_type != 2 &&
-            !build_reference_lists(input, header, &list0, &list1)) {
-            return CUDA_ERROR_INVALID_VALUE;
+        std::vector<H264Reference> shared_list0;
+        std::vector<H264Reference> shared_list1;
+        if (header.slice_type != 2) {
+            if (context) {
+                if (!context->dpb || !context->slice || !context->picture) {
+                    return CUDA_ERROR_INVALID_VALUE;
+                }
+                H264Slice shared_slice = *context->slice;
+                shared_slice.type = header.slice_type == 0 ? H264SliceType::kP
+                                    : header.slice_type == 1 ? H264SliceType::kB
+                                                             : H264SliceType::kI;
+                shared_slice.frame_num = static_cast<uint32_t>(header.frame_num);
+                for (int list = 0; list < 2; ++list) {
+                    shared_slice.num_ref_idx_active[list] =
+                        static_cast<uint32_t>(header.ref_count[list]);
+                    shared_slice.modifications[list].clear();
+                    for (const SliceHeader::Modification &old : header.modifications[list]) {
+                        H264RefListModification modification;
+                        modification.idc = old.operation;
+                        modification.abs_diff_pic_num_minus1 = old.value;
+                        modification.long_term_pic_num = old.value;
+                        shared_slice.modifications[list].push_back(modification);
+                    }
+                }
+                H264DpbStatus status = context->dpb->reference_list(
+                    shared_slice, *context->picture, 0, &shared_list0);
+                if (status != H264DpbStatus::kOk) return CUDA_ERROR_INVALID_VALUE;
+                if (header.slice_type == 1) {
+                    status = context->dpb->reference_list(
+                        shared_slice, *context->picture, 1, &shared_list1);
+                    if (status != H264DpbStatus::kOk) return CUDA_ERROR_INVALID_VALUE;
+                }
+            } else if (!build_reference_lists(input, header, &list0, &list1)) {
+                return CUDA_ERROR_INVALID_VALUE;
+            }
         }
 
         VASliceParameterBufferH264 slice = {};
@@ -685,12 +757,22 @@ CUresult translate_h264_picture(const CUVIDPICPARAMS &input,
             slice.RefPicList1[i].flags = VA_PICTURE_H264_INVALID;
         }
         if (header.slice_type != 2) {
-            if (!fill_reference_list(slice.RefPicList0, list0, header.ref_count[0], input, surfaces)) {
-                return CUDA_ERROR_INVALID_VALUE;
-            }
-            if (header.slice_type == 1 &&
-                !fill_reference_list(slice.RefPicList1, list1, header.ref_count[1], input, surfaces)) {
-                return CUDA_ERROR_INVALID_VALUE;
+            if (context) {
+                if (!fill_shared_reference_list(slice.RefPicList0, shared_list0,
+                                                header.ref_count[0], surfaces) ||
+                    (header.slice_type == 1 &&
+                     !fill_shared_reference_list(slice.RefPicList1, shared_list1,
+                                                 header.ref_count[1], surfaces))) {
+                    return CUDA_ERROR_INVALID_VALUE;
+                }
+            } else {
+                if (!fill_reference_list(slice.RefPicList0, list0, header.ref_count[0], input, surfaces)) {
+                    return CUDA_ERROR_INVALID_VALUE;
+                }
+                if (header.slice_type == 1 &&
+                    !fill_reference_list(slice.RefPicList1, list1, header.ref_count[1], input, surfaces)) {
+                    return CUDA_ERROR_INVALID_VALUE;
+                }
             }
         }
         // pred_weight_table() 结果。VA API 要的是"推断后的"权重（7.4.3.2）：

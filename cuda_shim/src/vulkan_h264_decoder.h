@@ -37,6 +37,7 @@ extern "C" {
 namespace cuvid_shim {
 
 class HipFrameMapping;
+struct H264DecodeContext;
 
 class VulkanH264Decoder {
 public:
@@ -55,6 +56,20 @@ public:
     int coded_height() const { return coded_height_; }
 
 private:
+    struct DpbEntry {
+        int slot = -1;
+        int picture_index = -1;
+        int frame_num = 0;
+        int field_poc[2] = {0, 0};
+        bool long_term = false;
+        int long_term_frame_idx = 0;
+    };
+
+    // Reconcile picture_index -> Vulkan DPB slot mappings with the shared DPB.
+    // `references` excludes the current setup picture.
+    CUresult setup_shared_dpb(const H264DecodeContext &context, int picture_index,
+                              int *setup_slot, std::vector<DpbEntry> *references);
+
     // Build session/params/images/buffers/sync once SPS/PPS are cached. Idempotent.
     // Returns CUDA_SUCCESS on build OR when the cache is still empty (deferred);
     // caller checks session_ != VK_NULL_HANDLE to distinguish ready vs deferred.
@@ -199,14 +214,9 @@ private:
     // POC state carried across decode() calls. Reset on IDR.
     H264POCContext poc_ctx_ = {};
 
-    // Active reference picture set (slot + frame_num + POC). The driver orders the
-    // actual ref lists internally; this only tracks which pictures are still valid
-    // references, mirroring P0's DPB state machine (MMCO + sliding window + IDR).
-    struct DpbEntry {
-        int slot = -1;
-        int frame_num = 0;
-        int field_poc[2] = {0, 0};
-    };
+    // Active reference picture set plus picture_index -> slot mapping. The
+    // shared parser path reconciles it with H264Dpb; the direct path uses the
+    // legacy local MMCO state until its separate migration.
     std::vector<DpbEntry> dpb_;
 };
 

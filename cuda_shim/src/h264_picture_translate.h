@@ -9,6 +9,8 @@
 
 namespace cuvid_shim {
 
+struct H264DecodeContext;
+
 struct VaH264Picture {
     VAPictureParameterBufferH264 parameters = {};
     VAIQMatrixBufferH264 inverse_quantizer = {};
@@ -17,7 +19,8 @@ struct VaH264Picture {
 
 CUresult translate_h264_picture(const CUVIDPICPARAMS &input,
                                 const std::vector<VASurfaceID> &surfaces,
-                                VaH264Picture *output);
+                                VaH264Picture *output,
+                                const H264DecodeContext *context = nullptr);
 
 } // namespace cuvid_shim
 

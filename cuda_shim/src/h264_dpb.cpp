@@ -18,7 +18,9 @@ bool fits_int32(int64_t value) {
 
 H264DpbStatus validate_sequence(const H264Sequence &sequence) {
     if (sequence.log2_max_frame_num < 4 || sequence.log2_max_frame_num > 16 ||
-        sequence.log2_max_poc_lsb < 4 || sequence.log2_max_poc_lsb > 16 ||
+        (sequence.poc_type == 0 &&
+         (sequence.log2_max_poc_lsb < 4 || sequence.log2_max_poc_lsb > 16)) ||
+        (sequence.poc_type != 0 && sequence.log2_max_poc_lsb > 16) ||
         sequence.poc_type > 2 || sequence.offset_for_ref_frame.size() > 255 ||
         sequence.max_num_ref_frames > kH264MaxReferenceFrames ||
         sequence.max_dpb_frames == 0 ||
@@ -68,6 +70,8 @@ H264DpbStatus H264Dpb::reset(const H264Sequence &sequence) {
     prev_has_mmco5_ = false;
     picture_active_ = false;
     sequence_id_ = 0;
+    latest_sequence_id_ = 0;
+    latest_poc_ = 0;
     active_poc_msb_ = 0;
     active_frame_num_offset_ = 0;
     return H264DpbStatus::kOk;
@@ -131,6 +135,15 @@ H264DpbStatus H264Dpb::begin_picture(const H264Slice &slice, int picture_index,
 
 H264DpbStatus H264Dpb::calculate_poc(const H264Slice &slice, H264Picture *picture,
                                      int *poc_msb, int *frame_num_offset) const {
+    if (slice.has_poc_override) {
+        *poc_msb = 0;
+        *frame_num_offset = 0;
+        picture->top_field_order_cnt = slice.poc_override[0];
+        picture->bottom_field_order_cnt = slice.poc_override[1];
+        picture->poc = std::min(slice.poc_override[0], slice.poc_override[1]);
+        return H264DpbStatus::kOk;
+    }
+
     const int max_frame_num = 1 << sequence_.log2_max_frame_num;
     int64_t frame_offset = prev_frame_num_offset_;
     int previous_frame_num = prev_frame_num_;
@@ -298,8 +311,8 @@ H264DpbStatus H264Dpb::modify_list(
         return H264DpbStatus::kInvalidArgument;
     }
     const std::vector<H264Reference> initial = *references;
-    if (initial.size() < active_count) return H264DpbStatus::kReferenceNotFound;
-
+    // Modifications may select the same DPB reference more than once, so the
+    // initial unique-reference count is allowed to be smaller than active_count.
     std::vector<H264Reference> modified;
     std::vector<bool> selected(initial.size(), false);
     modified.reserve(active_count);
@@ -626,10 +639,20 @@ H264DpbStatus H264Dpb::finish_picture(const H264Slice &slice, H264Picture *curre
 
     if (status == H264DpbStatus::kOk) status = validate_reference_count(*current);
     erase_unreferenced();
-    while (status == H264DpbStatus::kOk && pictures_.size() >= sequence_.max_dpb_frames) {
-        status = bump_one();
+    if (status == H264DpbStatus::kOk && current->needs_output) {
+        // Queue every decoded picture immediately. Reference pictures remain in
+        // the reference DPB, while the output queue owns their display lifetime.
+        // This prevents a non-reference B frame from overtaking an earlier
+        // reference picture that has not been bumped yet.
+        queue_output(*current);
+        current->needs_output = false;
     }
-    if (status == H264DpbStatus::kOk) pictures_.push_back(*current);
+    if (status == H264DpbStatus::kOk && current->reference != H264ReferenceType::kUnused) {
+        while (status == H264DpbStatus::kOk && pictures_.size() >= sequence_.max_dpb_frames) {
+            status = bump_one();
+        }
+        if (status == H264DpbStatus::kOk) pictures_.push_back(*current);
+    }
 
     if (status != H264DpbStatus::kOk) {
         *this = std::move(rollback);
@@ -649,6 +672,8 @@ H264DpbStatus H264Dpb::finish_picture(const H264Slice &slice, H264Picture *curre
     }
     prev_frame_num_ = current->frame_num;
     prev_frame_num_offset_ = active_frame_num_offset_;
+    latest_sequence_id_ = current->sequence_id;
+    latest_poc_ = current->poc;
     picture_active_ = false;
     return H264DpbStatus::kOk;
 }
@@ -661,12 +686,24 @@ H264DpbStatus H264Dpb::drain() {
 
 std::vector<H264Output> H264Dpb::take_outputs(std::size_t max_display_delay,
                                                bool flush) {
-    std::size_t count = 0;
+    std::size_t eligible = 0;
     if (flush) {
-        count = pending_outputs_.size();
-    } else if (pending_outputs_.size() > max_display_delay) {
-        count = pending_outputs_.size() - max_display_delay;
+        eligible = pending_outputs_.size();
+    } else {
+        while (eligible < pending_outputs_.size()) {
+            const H264Output &output = pending_outputs_[eligible];
+            if (output.sequence_id < latest_sequence_id_ ||
+                (output.sequence_id == latest_sequence_id_ && output.poc < latest_poc_)) {
+                ++eligible;
+            } else {
+                break;
+            }
+        }
     }
+    const std::size_t count = flush ? eligible
+                                    : (eligible > max_display_delay
+                                           ? eligible - max_display_delay
+                                           : 0);
     std::vector<H264Output> outputs;
     outputs.reserve(count);
     std::move(pending_outputs_.begin(), pending_outputs_.begin() + count,
