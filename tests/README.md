@@ -14,6 +14,9 @@
 ## 常用命令
 
 ```bash
+# 后端无关 progressive H.264 DPB 状态机（CPU，仅 C++17）
+make -C cuda_shim check_h264_dpb
+
 # 1. parser 复用（CPU）
 cd tests/parser
 make -f verify_parser_reuse.make

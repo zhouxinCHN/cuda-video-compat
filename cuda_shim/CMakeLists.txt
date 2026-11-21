@@ -41,3 +41,13 @@ target_include_directories(verify_symbols PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/include
     ${NV_CODEC_INCLUDE})
 target_link_libraries(verify_symbols PRIVATE dl)
+
+# Backend-independent DPB state-machine tests (no GPU/FFmpeg/ROCm runtime needed).
+add_executable(verify_h264_dpb
+    tests/verify_h264_dpb.cpp
+    src/h264_dpb.cpp)
+target_include_directories(verify_h264_dpb PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+target_compile_options(verify_h264_dpb PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+enable_testing()
+add_test(NAME h264_dpb COMMAND verify_h264_dpb)

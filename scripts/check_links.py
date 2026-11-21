@@ -15,7 +15,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LINK_RE = re.compile(r"\]\(([^)]+)\)")
-SKIP_DIRS = {".git", ".claude", "third_party", "__pycache__"}
+SKIP_DIRS = {".git", ".claude", "third_party", "rocm", "__pycache__"}
 
 
 def main() -> int:

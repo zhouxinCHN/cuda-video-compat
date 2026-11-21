@@ -30,7 +30,8 @@ make -j"$(nproc)" libcuda.so.1 libnvcuvid.so.1 \
 常用验证目标：
 
 ```bash
-make check                    # 符号面（模拟 FFmpeg dlsym）
+make check                    # 符号面（模拟 FFmpeg dlsym）+ DPB 纯组件测试
+make check_h264_dpb           # progressive H.264 DPB 纯组件测试（仅 C++17）
 make check_func               # libcuda 功能子集（47 项）
 make verify_cuvid_session     # CUVID 会话创建（无像素）
 make verify_cuvid_parser      # parser 回调（无解码）
@@ -69,6 +70,16 @@ RADV_PERFTEST=video_decode CUVID_SHIM_BACKEND=vk \
 | `CUVID_SHIM_TRACE_PARAMS=1` | 打印每次 `cuvidDecodePicture` 的 frame_num/POC/DPB，用于参考帧问题定位 |
 | `CUVID_SHIM_TRACE_SURF=1` | 打印解码目标面与 map/unmap 顺序 |
 | `CUVID_DUMP_NV12_DIR=<dir>` | 每帧 dump NV12，用于和软解参考逐帧逐平面比对 |
+
+## 后端无关 DPB 组件（第一阶段）
+
+`src/h264_dpb.{h,cpp}` 参考 `rocm-systems/projects/rocdecode` 的 AVC parser，实现 progressive frame 的 POC 0/1/2、MMCO 1–6、短期/长期参考、滑动窗口、参考列表重排和 POC 顺序输出。它只接收已解析的语法结构，不负责码流解析，也不依赖 VAAPI、Vulkan、HIP 或 FFmpeg。
+
+```bash
+make -C cuda_shim check_h264_dpb
+```
+
+该目标只覆盖纯状态机单元测试；组件尚未接入 `CuvidParser`、VAAPI/Vulkan 翻译或 FFmpeg 宿主，因此不能据此宣称长期参考帧或 POC type 1 已完成端到端闭环。
 
 ## 状态与边界
 

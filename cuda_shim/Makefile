@@ -24,7 +24,7 @@ HIPCC_EXTRA  ?=
 #   make VULKAN_LIB=-l:libvulkan.so.1
 VULKAN_LIB   ?= -lvulkan
 
-all: libcuda.so.1 libnvcuvid.so.1 verify_symbols verify_cuvid_symbols verify_cuvid_session verify_cuvid_parser test_func test_func_full
+all: libcuda.so.1 libnvcuvid.so.1 verify_symbols verify_cuvid_symbols verify_cuvid_session verify_cuvid_parser verify_h264_dpb test_func test_func_full
 
 # 生成带 soname 的 libcuda.so.1，并建 libcuda.so 开发软链（-lcuda 需要）
 libcuda.so.1: src/libcuda.cpp include/cuda_shim_types.h
@@ -76,6 +76,11 @@ verify_cuvid_parser: tests/verify_cuvid_parser.cpp libnvcuvid.so.1
 		-L$(FFMPEG_DIR)/libavutil -lavutil \
 		-Wl,-rpath,$(abspath .) -Wl,-rpath,$(abspath $(FFMPEG_DIR)/libavutil)
 
+# 后端无关的 progressive H.264 DPB 纯组件测试；不需要 GPU/FFmpeg/ROCm。
+verify_h264_dpb: tests/verify_h264_dpb.cpp src/h264_dpb.cpp src/h264_dpb.h
+	$(CXX) -std=c++17 -Wall -Wextra -Wpedantic -Werror -Isrc \
+		tests/verify_h264_dpb.cpp src/h264_dpb.cpp -o $@
+
 # mapped dev_ptr 的 kernel 可访问性 + 真实 event 顺序验证。
 # 需要 libnvcuvid 中已实现的 parser/decoder；测试本身只链接 CUVID + HIP。
 verify_kernel_read: tests/verify_kernel_read.cpp libnvcuvid.so.1
@@ -93,9 +98,13 @@ test_func: tests/test_func.cpp libcuda.so.1
 test_func_full: tests/test_func_full.cpp libcuda.so.1
 	$(CXX) -std=c++17 -I$(NVCODEC_DIR) $< -o $@ -L. -lcuda -Wl,-rpath,$(abspath .)
 
-check: verify_symbols verify_cuvid_symbols libcuda.so.1 libnvcuvid.so.1
+check: verify_symbols verify_cuvid_symbols verify_h264_dpb libcuda.so.1 libnvcuvid.so.1
 	./verify_symbols ./libcuda.so.1
 	./verify_cuvid_symbols ./libnvcuvid.so.1
+	./verify_h264_dpb
+
+check_h264_dpb: verify_h264_dpb
+	./verify_h264_dpb
 
 check_func: test_func_full
 	./test_func_full
@@ -130,6 +139,6 @@ check_parser: parser_reuse
 clean:
 	rm -f libcuda.so.1 libcuda.so libnvcuvid.so.1 libnvcuvid.so \
 		verify_symbols verify_cuvid_symbols verify_cuvid_session \
-		verify_cuvid_parser verify_kernel_read test_func test_func_full parser_reuse
+		verify_cuvid_parser verify_kernel_read verify_h264_dpb test_func test_func_full parser_reuse
 
-.PHONY: all check check_func check_func_smoke parser_reuse check_parser clean
+.PHONY: all check check_h264_dpb check_func check_func_smoke parser_reuse check_parser clean

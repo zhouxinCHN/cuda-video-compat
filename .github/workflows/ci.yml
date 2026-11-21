@@ -23,6 +23,9 @@ jobs:
             tests/npp/compare_stage_a.py \
             tests/zerocopy/run_hip_encode_compare.py
 
+      - name: Test backend-independent H264 DPB
+        run: make -C cuda_shim check_h264_dpb
+
       - name: Check Markdown links
         run: python3 scripts/check_links.py
 

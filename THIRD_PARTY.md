@@ -8,6 +8,7 @@ dependencies and remain under their own licenses.
 | FFmpeg 7.1 | Parser object files (`h2645_parse`, `h264_ps`, `h2645_vui`, `h2645data`, `h264data`, `h264_parse`, `golomb`, `mathtables`, `refstruct`) and `libavutil` | LGPL-2.1-or-later. Source is not committed. Binary distribution that links these objects must satisfy LGPL obligations (source availability, relinking, notices). |
 | nv-codec-headers | CUDA/CUVID API headers (`ffnvcodec/*.h`) | MIT |
 | ROCm / HIP | Runtime and compiler | MIT (see ROCm distribution) |
+| rocDecode (`rocm-systems/projects/rocdecode`) | Algorithm reference for the backend-independent H.264 DPB component; not linked or copied as a library | MIT. Reference commit `9a279cd640c9f52eebdff273b76d494fdd8e0d28`; see `licenses/rocDecode-MIT.txt`. Codec patent rights are not granted. |
 | Mesa / RADV | Vulkan Video implementation and `vk_video/*` headers | MIT (see Mesa distribution) |
 | Vulkan-Headers / loader | Vulkan API headers and loader | Apache-2.0 / MIT-style; see upstream |
 | libva / libdrm | VAAPI and DRM interfaces | MIT / MIT-style; see upstream |
@@ -22,6 +23,14 @@ separately.
 
 If you distribute binaries that include FFmpeg-derived objects, review the LGPL-2.1
 requirements with your legal team before release.
+
+## rocDecode algorithm reference
+
+`cuda_shim/src/h264_dpb.{h,cpp}` adapts selected progressive-AVC state-machine
+algorithms from `rocm-systems/projects/rocdecode/src/parser/avc_parser.cpp` at the
+commit listed above. The external source checkout is not part of the build and no
+rocDecode library is linked. The MIT copyright and permission notice is retained in
+`licenses/rocDecode-MIT.txt`; its standards/patent notice applies separately.
 
 ## Test media
 
